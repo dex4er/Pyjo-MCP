@@ -26,6 +26,43 @@ Pyjoyment is on PyPI yet; with uv, Pyjoyment comes from its Git repository too:
 uv add git+https://github.com/dex4er/Pyjo-MCP
 ```
 
+## Usage
+
+A server of MCP is a route of an application of Pyjoyment, whose tools are
+functions, with the schemas of their type hints and the descriptions of their
+docstrings:
+
+```python
+from Pyjo.MCP.Server import Server
+from Pyjo.MCP.Tool import Error
+from Pyjoyment.Lite import *
+
+server = Server(name='calculator', version='1.0.0')
+
+
+@server.tool
+def divide(a: float, b: float) -> float:
+    """Divide the first number by the second one."""
+    if b == 0:
+        raise Error.new('Division by zero')
+    return a / b
+
+
+# Host and Origin of localhost only, against DNS rebinding
+plugin('AllowedHosts')
+
+any('/mcp', server.to_action())
+
+app.start()
+```
+
+```sh
+uv run python calculator.py daemon -l http://127.0.0.1:3000
+```
+
+Its endpoint is `http://127.0.0.1:3000/mcp`, of the transport Streamable HTTP.
+The whole calculator is [`examples/calculator.py`](examples/calculator.py).
+
 ## Documentation
 
 The API of the package is on
@@ -33,7 +70,9 @@ The API of the package is on
 
 ## Status
 
-Planning: the package has only its version and the revision of the protocol.
+A server of the tools of MCP over Streamable HTTP, with `server/discover`,
+`tools/list` and `tools/call`. Prompts, resources, the subscriptions, the
+streams of SSE, the transport stdio and the client are to come.
 
 ## License
 
