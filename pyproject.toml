@@ -58,7 +58,7 @@ select = ["B", "E4", "E7", "E9", "F", "I", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 # Examples of Pyjoyment.Lite import its functions, as `use Mojolicious::Lite` in Perl.
-"examples/**" = [
+"{docs,examples}/**" = [
   # F403 "`from Pyjoyment.Lite import *` used; unable to detect undefined names"
   "F403",
   # F405 "`app` may be undefined, or defined from star imports"

@@ -76,8 +76,8 @@ claude mcp add --transport http weather http://127.0.0.1:3000/mcp
 
 ## Documentation
 
-The API of the package is on
-[Read the Docs](https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/latest/).
+The tutorial, which makes servers of MCP step by step, and the API of the package
+are on [Read the Docs](https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/latest/).
 
 ## Status
 

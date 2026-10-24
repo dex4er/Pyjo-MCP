@@ -50,6 +50,20 @@ enum of strings or a date, gets no `outputSchema`, and its value is the text of
 the content; a value of an `outputSchema` that does not validate is an error
 of the server, not of the language model.
 
+## The Guides
+
+The guides are pages of `docs/guides`, as the guides of Pyjoyment: an example
+that is a whole application is a file of its own, in a directory with the name
+of the page, as `docs/guides/tutorial/`, which the page includes with
+`literalinclude`, and which the test of the guide, as
+`t/docs/guides_tutorial.py`, loads with `Pyjo.Test.Pyjo` and calls with the
+requests of MCP, so that what the reader sees is what is tested. A remote
+service of an example is answered by a mock, a route of the test, where the
+event `start` of the user agent of the application sends the requests, as
+the tests do not use the network. The guides link to the documentation of
+Pyjoyment with intersphinx, as `:doc:` with the prefix `pyjoyment:`, for what
+it teaches already, as the commands and the servers.
+
 ## Imports of the Package
 
 The modules of the distribution import the package and each other relatively,
