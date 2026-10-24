@@ -60,6 +60,9 @@ lint:
     # pinact: pins GitHub Actions to commit hashes; the actions are pinned by
     # their tags, as in Pyjoyment
     - pinact
+    # renovate: validates the Renovate configuration; Renovate validates it
+    # itself on every run, and the linter is a heavy npm package
+    - renovate
     # trivy: scanner for containers, infrastructure as code and dependencies;
     # nothing to scan here
     - trivy
