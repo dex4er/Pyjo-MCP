@@ -63,6 +63,17 @@ uv run python calculator.py daemon -l http://127.0.0.1:3000
 Its endpoint is `http://127.0.0.1:3000/mcp`, of the transport Streamable HTTP.
 The whole calculator is [`examples/calculator.py`](examples/calculator.py).
 
+[`examples/weather.py`](examples/weather.py) is a gateway to the weather of
+[Open-Meteo](https://open-meteo.com), which needs no key, with the tools
+`find_places`, `current_weather`, `forecast` and `hourly_forecast`, which
+request the API with the non-blocking user agent of the application. A client of MCP, as Claude Code,
+connects to it over HTTP:
+
+```sh
+uv run python examples/weather.py daemon -l http://127.0.0.1:3000
+claude mcp add --transport http weather http://127.0.0.1:3000/mcp
+```
+
 ## Documentation
 
 The API of the package is on
