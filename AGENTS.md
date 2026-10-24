@@ -13,6 +13,64 @@ first, is in the issue of Pyjoyment about MCP.
 The reference is the distribution `MCP` of CPAN, built on Mojolicious, under
 the MIT license.
 
+## The Server
+
+`Pyjo.MCP.Server` is made on `Pyjo.JSON.RPC` of Pyjoyment: its methods,
+`server/discover`, `tools/list` and `tools/call`, are methods of a dispatcher
+of JSON-RPC that get the `Context` of the request, and `dispatch_p` takes a
+message of any transport. A batch and a request with the `id` of `null` are
+invalid requests, as MCP has neither. Each method checks the `_meta` of its
+request first, as the protocol is stateless: there is no `initialize`, and
+every request carries its revision and the capabilities of its client.
+
+`to_action` is the transport Streamable HTTP. The status of HTTP of an error
+is not a function of its code: `-32602` is `400 Bad Request` for a `_meta`
+without its required fields, as the specification requires, but `200 OK` for
+an unknown tool, as the example of the specification of the tools has it. So
+the check that raises the error sets `status` of the `Context`, and the codes
+give the status otherwise: `-32601` is `404 Not Found`, which tells a modern
+server from a legacy one, `-32603` is `500 Internal Server Error`, and
+`-32700` and `-32600` are `400 Bad Request`. The headers of MCP,
+`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` and the `Mcp-Param-{name}` of
+the `x-mcp-header` of a tool, are checked against the body before the
+dispatch, for a request only, as the specification defines no headers of a
+notification. `to_action` does not check `Host` and `Origin`:
+`Pyjoyment.Plugin.AllowedHosts` does, as the application knows its hosts.
+
+## The Tools
+
+A tool is a function, whose `inputSchema` and `outputSchema` are those of
+`Pyjo.JSON.Schema` of its type hints. Arguments that the `inputSchema` does
+not validate give a result with `isError`, not the error `-32602`: the
+specification counts the validation of the input among the errors of the
+execution of a tool, which the language model reads to correct its call,
+while an unknown tool and arguments that are not an object are errors of the
+protocol. A function that returns a string, or the annotation of a string, an
+enum of strings or a date, gets no `outputSchema`, and its value is the text of
+the content; a value of an `outputSchema` that does not validate is an error
+of the server, not of the language model.
+
+## Imports of the Package
+
+The modules of the distribution import the package and each other relatively,
+`from .. import MCP` and `from . import Tool`, not as `import Pyjo.MCP.Tool`:
+pyright takes `Pyjo` for the regular package of Pyjoyment in `.venv`, which
+hides the namespace that `extend_path` keeps open, so it does not find
+`Pyjo.MCP` of the checkout. The tests and the documentation import them as
+`Pyjo.MCP.Server`, which Python finds through `extend_path`.
+
+## The MCP SDK
+
+`t/sdk` runs the client of the MCP SDK, of the dependency group `sdk`, against
+the server of `examples/calculator.py`, as an implementation of the
+specification of its own; without the group, the test is skipped. The server
+runs in a process of its own, as the client runs the event loop of asyncio in
+the process of the test, and the job `sdk` of the workflow Tests runs it:
+
+```sh
+mise exec -- uv run --group sdk --with-editable ../Pyjoyment python -m Pyjo.Prove -l -r t/sdk
+```
+
 ## Development
 
 The distribution depends on Pyjoyment of its Git repository, as the revival

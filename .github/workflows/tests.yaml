@@ -95,3 +95,50 @@ jobs:
         run: |-
           uv run --project ../Pyjo-MCP --with-editable . python -m Pyjo.Prove -l --color -j 4 --timeout 60 --capture-stderr --stderr-lines 1000 -r t 2>&1 | tee prove.log
           if grep -n 'ResourceWarning:' prove.log; then exit 1; fi
+
+  # The client of the MCP SDK, of the dependency group `sdk`, against the
+  # server of the example, as an implementation of the specification of its
+  # own, on the newest Python of the matrix.
+  sdk:
+    name: sdk (python 3.15)
+
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          path: Pyjo-MCP
+
+      - name: Checkout Pyjoyment
+        uses: actions/checkout@v7
+        with:
+          repository: dex4er/Pyjoyment
+          ref: ${{ inputs.pyjoyment-ref || 'main' }}
+          path: Pyjoyment
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+          allow-prereleases: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.3.2
+        with:
+          version: 0.13.5 # datasource=github-releases depName=astral-sh/uv
+
+      - name: Install
+        working-directory: Pyjo-MCP
+        run: uv sync --group sdk --python "$(command -v python)"
+
+      - name: Run the tests of the MCP SDK
+        working-directory: Pyjo-MCP
+        shell: bash
+        env:
+          PYTHONDEVMODE: "1"
+          PYTHONWARNINGS: error::SyntaxWarning,error::DeprecationWarning
+        run: |-
+          uv run --group sdk --with-editable ../Pyjoyment python -m Pyjo.Prove -l --color --timeout 120 --capture-stderr -r t/sdk 2>&1 | tee prove.log
+          if grep -n 'ResourceWarning:' prove.log; then exit 1; fi
