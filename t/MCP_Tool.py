@@ -90,7 +90,7 @@ with subtest('Function'):
         result,
         {
             'content': [
-                {'type': 'text', 'text': '{"conditions":"Partly cloudy in Warsaw for 3 days","temperature":22.5}'}
+                {'type': 'text', 'text': '{"temperature":22.5,"conditions":"Partly cloudy in Warsaw for 3 days"}'}
             ],
             'structuredContent': {'temperature': 22.5, 'conditions': 'Partly cloudy in Warsaw for 3 days'},
             'isError': False,
