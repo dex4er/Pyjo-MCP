@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/google/yamlfmt/refs/heads/main/schema.json
+
+# Trunk formats a copy in .trunk/out, so .trunk/trunk.yaml is excluded in
+# trunk.yaml too; this entry is for yamlfmt run on its own.
+exclude:
+  - .trunk/trunk.yaml
+# No gitignore_excludes: Trunk skips git-ignored files itself, and its copies
+# in .trunk/out are git-ignored, so yamlfmt would not format anything.
+formatter:
+  eof_newline: false
+  indentless_arrays: false
+  max_line_length: 100
+  retain_line_breaks_single: true
+  trim_trailing_whitespace: true
+  force_quote_style: double

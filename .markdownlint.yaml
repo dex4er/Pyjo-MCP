@@ -1,0 +1,21 @@
+# Rules about formatting are left to prettier, which formats Markdown.
+default: true
+# Blank lines around headings, lists and code blocks, and multiple blank lines
+blank_lines: false
+# List markers: style, indentation and consistency
+bullet: false
+# Inline HTML
+html: false
+# Indentation of lists and block quotes
+indentation: false
+# Line length
+line_length: false
+# Spaces around heading markers, list markers and emphasis
+spaces: false
+# Bare URLs, which should be in angle brackets or links
+url: false
+# Trailing spaces, hard tabs and other whitespace
+whitespace: false
+# MD041 "First line in a file should be a top-level heading": CLAUDE.md starts
+# with the @AGENTS.md import
+first-line-heading: false

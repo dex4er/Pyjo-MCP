@@ -1,0 +1,29 @@
+# Read the Docs configuration: https://docs.readthedocs.com/platform/stable/config-file/v2.html
+version: 2
+
+build:
+  os: ubuntu-26.04
+  tools:
+    python: "3.14"
+  jobs:
+    # A pull request of Renovate is cancelled, which Read the Docs reports to
+    # GitHub as passed, as the workflow Docs builds it already. Read the Docs
+    # knows the number of a pull request, not its branch, so the author of the
+    # last commit tells it.
+    post_checkout:
+      - |
+        if [ "$READTHEDOCS_VERSION_TYPE" = "external" ] && git log -1 --format=%ae | grep -q "renovate\\[bot\\]"; then
+          exit 183
+        fi
+
+sphinx:
+  configuration: docs/conf.py
+
+# uv sync of uv.lock, with Pyjoyment of its Git repository, which autodoc imports, and Sphinx of the group
+# docs: pip would take Pyjoyment from PyPI, as it does not read tool.uv.sources
+python:
+  install:
+    - method: uv
+      command: sync
+      groups:
+        - docs

@@ -1,0 +1,59 @@
+name: Build
+
+# Checks that uv.lock matches pyproject.toml, builds the sdist and the wheel,
+# checks that the wheel has the package Pyjo.MCP and nothing of the namespace
+# of Pyjoyment, and installs it with Pyjoyment and imports it, outside the
+# checkout.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - "*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build
+
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up mise
+        uses: jdx/mise-action@v5
+        with:
+          version: 2026.10.15 # datasource=github-releases depName=jdx/mise
+
+      # uv.lock has to match pyproject.toml.
+      - name: Check uv.lock
+        run: uv lock --check
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      # The package Pyjo is the one of Pyjoyment: a wheel with its __init__.py
+      # would overwrite the file of Pyjoyment.
+      - name: Check wheel contents
+        run: |-
+          python -m zipfile -l dist/*.whl | tee wheel.txt
+          grep -q 'Pyjo/MCP/__init__.py' wheel.txt
+          if grep -E '(^| )Pyjo/__init__\.py' wheel.txt; then exit 1; fi
+
+      # The wheel in an environment of its own, outside the checkout, so that
+      # nothing comes from it. tool.uv.sources applies only in the project,
+      # so Pyjoyment comes from its Git repository explicitly.
+      - name: Install and import the wheel
+        shell: bash
+        run: |-
+          uv venv --python "$(command -v python)" "$RUNNER_TEMP/venv"
+          uv pip install --python "$RUNNER_TEMP/venv/bin/python" git+https://github.com/dex4er/Pyjoyment dist/*.whl
+          cd "$RUNNER_TEMP"
+          venv/bin/python -c 'import Pyjo.MCP, Pyjo.URL; print(Pyjo.MCP.__version__, Pyjo.MCP.PROTOCOL_VERSION)'

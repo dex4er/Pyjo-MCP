@@ -1,0 +1,84 @@
+[build-system]
+requires = ["hatchling>=1.32.4"]
+build-backend = "hatchling.build"
+
+[project]
+name = "Pyjo-MCP"
+dynamic = ["version"]
+description = "Model Context Protocol server and client for Pyjoyment."
+readme = "README.md"
+license = "Artistic-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Piotr Roszatycki", email = "piotr.roszatycki@gmail.com" }]
+requires-python = ">=3.12"
+dependencies = ["Pyjoyment"]
+keywords = ["pyjoyment", "mcp", "model-context-protocol"]
+classifiers = [
+  "Development Status :: 1 - Planning",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3 :: Only",
+]
+
+[project.urls]
+Homepage = "https://github.com/dex4er/Pyjo-MCP"
+Documentation = "https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/latest/"
+
+# Sphinx of docs/, which Read the Docs and the workflow Docs install with uv sync --group docs
+[dependency-groups]
+docs = ["sphinx>=9.1.1"]
+
+# Pyjoyment of its Git repository, as its revival is not on PyPI yet; a path to the checkout next to this one would be a
+# subdirectory of this repository for whoever installs it from Git, as uv applies the sources of a dependency of Git
+[tool.uv.sources]
+Pyjoyment = { git = "https://github.com/dex4er/Pyjoyment" }
+
+[tool.hatch.version]
+path = "Pyjo/MCP/__init__.py"
+
+# Only the package Pyjo.MCP: the package Pyjo is the one of Pyjoyment, whose namespace extend_path keeps open
+[tool.hatch.build.targets.wheel]
+only-include = ["Pyjo/MCP"]
+
+# The files of the distribution, as in Pyjoyment, and not the files of the tools, as .trunk
+[tool.hatch.build.targets.sdist]
+include = ["/Pyjo", "/t", "/docs", "/.proverc", "/LICENSE", "/README.md"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.format]
+quote-style = "single"
+
+# The rules of Pyjoyment, whose conventions this distribution follows.
+[tool.ruff.lint]
+select = ["B", "E4", "E7", "E9", "F", "I", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test scripts import all test functions, like `use Test::More` in Perl.
+"t/**" = [
+  # F403 "`from Pyjo.Test import *` used; unable to detect undefined names"
+  "F403",
+  # F405 "`ok` may be undefined, or defined from star imports"
+  "F405",
+]
+
+[tool.ruff.lint.isort]
+# Pyjo modules first, then the standard library, then the others, as in Pyjoyment.
+known-first-party = ["Pyjo", "Pyjoyment"]
+section-order = [
+  "future",
+  "first-party",
+  "local-folder",
+  "standard-library",
+  "third-party",
+]
+lines-between-types = 1
+lines-after-imports = 2
+
+# The environment of uv sync, where Pyjoyment is, for pyright of Trunk too
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "off"
+strict = ["Pyjo/MCP/**"]

@@ -1,0 +1,6 @@
+[tools]
+python = "3.15.0"
+uv = "0.13.3"
+
+[settings]
+lockfile = true

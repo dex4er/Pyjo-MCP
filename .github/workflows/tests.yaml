@@ -1,0 +1,97 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - "*"
+  schedule:
+    # Daily, as Pyjoyment, whose tests have to pass with this distribution,
+    # changes more often than the distribution.
+    - cron: 37 5 * * *
+  workflow_dispatch:
+    inputs:
+      pyjoyment-ref:
+        description: The branch, tag or commit of Pyjoyment to test against
+        required: false
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  # The tests of the distribution, and the whole suite of Pyjoyment with the
+  # distribution installed, as its package is in the namespace of Pyjoyment.
+  # Pyjoyment is checked out next to this repository, and laid over the one of
+  # Git of `tool.uv.sources` of pyproject.toml with `--with-editable`, so that
+  # the checkout is what is tested.
+  prove:
+    name: prove (python ${{ matrix.python }})
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python:
+          - "3.12"
+          - "3.13"
+          - "3.14"
+          - "3.15"
+          - 3.15t
+          - pypy3.12
+
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          path: Pyjo-MCP
+
+      - name: Checkout Pyjoyment
+        uses: actions/checkout@v7
+        with:
+          repository: dex4er/Pyjoyment
+          ref: ${{ inputs.pyjoyment-ref || 'main' }}
+          path: Pyjoyment
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          allow-prereleases: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.3.2
+        with:
+          version: 0.13.5 # datasource=github-releases depName=astral-sh/uv
+
+      - name: Install
+        working-directory: Pyjo-MCP
+        run: uv sync --python "$(command -v python)"
+
+      # As in Pyjoyment: invalid escape sequences and deprecated APIs fail, and
+      # the ResourceWarning of the development mode of Python, which only goes
+      # to the standard error, is checked in the output.
+      - name: Run the tests of the distribution
+        working-directory: Pyjo-MCP
+        shell: bash
+        env:
+          PYTHONDEVMODE: "1"
+          PYTHONWARNINGS: error::SyntaxWarning,error::DeprecationWarning
+        run: |
+          uv run --with-editable ../Pyjoyment python -m Pyjo.Prove -l --color --timeout 60 --capture-stderr -r t 2>&1 | tee prove.log
+          if grep -n 'ResourceWarning:' prove.log; then exit 1; fi
+
+      - name: Run the tests of Pyjoyment with the distribution
+        working-directory: Pyjoyment
+        shell: bash
+        env:
+          PYTHONDEVMODE: "1"
+          PYTHONWARNINGS: error::SyntaxWarning,error::DeprecationWarning
+          TEST_ONLINE: "1"
+        run: |-
+          uv run --project ../Pyjo-MCP --with-editable . python -m Pyjo.Prove -l --color -j 4 --timeout 60 --capture-stderr --stderr-lines 1000 -r t 2>&1 | tee prove.log
+          if grep -n 'ResourceWarning:' prove.log; then exit 1; fi

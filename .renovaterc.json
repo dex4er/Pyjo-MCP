@@ -1,0 +1,49 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "rangeStrategy: always bump dependencies, even when the new version is already in the range.",
+    "rebaseWhen: rebase only on conflicts, to save unnecessary workflow runs."
+  ],
+  "extends": ["config:recommended", ":semanticCommitsDisabled"],
+  "addLabels": ["renovate"],
+  "osvVulnerabilityAlerts": true,
+  "rangeStrategy": "bump",
+  "vulnerabilityAlerts": {
+    "description": "Security fixes must not be delayed by minimumReleaseAge.",
+    "labels": ["security"],
+    "minimumReleaseAge": "0 days"
+  },
+  "rebaseWhen": "conflicted",
+  "minimumReleaseAge": "1 day",
+  "internalChecksFilter": "strict",
+  "lockFileMaintenance": {
+    "description": [
+      "mise.lock pins a checksum and a URL per tool per platform, but a local `mise install` re-locks only the platform it runs on and silently leaves the others stale.",
+      "Lock file maintenance runs plain `mise lock`, which refreshes every tool on every platform already in the file, and `uv lock --upgrade`, which moves Pyjoyment of uv.lock to the last commit of its Git repository.",
+      "Defaults are disabled and weekly, hence the explicit settings."
+    ],
+    "enabled": true,
+    "schedule": ["at any time"],
+    "automerge": true
+  },
+  "packageRules": [
+    {
+      "description": "requires-python of pyproject.toml is the lowest Python that the distribution supports, on purpose, not the Python of mise.toml, so rangeStrategy bump must not raise it.",
+      "matchManagers": ["pep621"],
+      "matchDepTypes": ["requires-python"],
+      "enabled": false
+    }
+  ],
+  "customManagers": [
+    {
+      "description": "Renovate hints in a comment after the version.",
+      "customType": "regex",
+      "extractVersionTemplate": "^v?(?<version>.*)$",
+      "managerFilePatterns": ["/^\\.github/workflows/.*\\.ya?ml$/"],
+      "matchStrings": [
+        "(\\s+|.*?@)(?<currentValue>\\S+?)!?\\s*#\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(\\s+versioning=(?<versioning>\\S+))?(\\s+registryUrl=(?<registryUrl>\\S+))?\\s*\\n"
+      ],
+      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}"
+    }
+  ]
+}
