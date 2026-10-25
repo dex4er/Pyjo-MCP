@@ -1,17 +1,22 @@
 """
 Usage: python mcp_cli.py [OPTIONS] [COMMAND] [OPTIONS]
 
+  python weather.py daemon  # starts a server of MCP at port 3000
   python mcp_cli.py
   python mcp_cli.py forecast --help
   python mcp_cli.py forecast --place Kraków --days 2 --language pl
   python mcp_cli.py hourly-forecast -p Warsaw -H 6 -f json
-  MCP_URL=http://127.0.0.1:3001/mcp python mcp_cli.py add -a 1 -b 2
+  python calculator.py daemon -l http://*:3001  # starts another one at port 3001
+  python mcp_cli.py -u http://127.0.0.1:3001/mcp add -a 1 -b 2
 
 A command line client of the tools of a server of MCP: a tool is a command, its
 name in kebab-case, and its arguments are the options of the command, with the
 names of the properties of its inputSchema, a string, an integer, a number, a
 flag of a boolean, or JSON for an array or an object. The result is text,
 tables of the lists of objects, or the JSON of its structuredContent.
+
+The commands are the tools of the server, so another server has other ones,
+which python mcp_cli.py lists.
 
 Options:
   -f, --format <name>   Format of the result, "text" or "json", defaults to
