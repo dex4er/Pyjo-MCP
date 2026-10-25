@@ -38,4 +38,7 @@ plugin('AllowedHosts')
 
 any('/mcp', server.to_action())
 
+# The transport stdio too, of the command stdio
+hook('before_server_start', server.to_stdio())
+
 app.start()

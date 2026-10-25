@@ -37,6 +37,26 @@ dispatch, for a request only, as the specification defines no headers of a
 notification. `to_action` does not check `Host` and `Origin`:
 `Pyjoyment.Plugin.AllowedHosts` does, as the application knows its hosts.
 
+## The Transport stdio
+
+`to_stdio` is the hook `before_server_start` that serves the server on the
+standard input and output of `Pyjo.Server.Stdio`, when the command `stdio` of
+Pyjoyment starts the application, and does nothing for another server, so that
+one application serves both transports. The stream, its framing of lines, the
+protection of the standard output and the end at the end of the input are those
+of Pyjoyment (`Pyjo.IOLoop.Stdio`, `Pyjo.IOLoop.Messages`, dex4er/Pyjoyment#361):
+the distribution only connects them.
+
+`serve` hands each message to `Pyjo.JSON.RPC.serve` with its `dispatch_p`
+(dex4er/Pyjoyment#375), not to the dispatcher of JSON-RPC directly, for two
+reasons. Each request needs a `Context` of its own, as `_meta` writes the
+revision and the capabilities of the client into it, while the `context` of
+`serve` is one for all the requests of the stream, which are served at the same
+time. And `dispatch_p` of the server rejects the batches and the `id` of
+`null`, which the dispatcher of JSON-RPC accepts. The `Context` has no
+controller over stdio, so it carries the log of the application, which gets the
+errors of the server that the controller logs over HTTP.
+
 ## The Tools
 
 A tool is a function, whose `inputSchema` and `outputSchema` are those of

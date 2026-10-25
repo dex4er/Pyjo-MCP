@@ -3,9 +3,14 @@ import Pyjo.Test.Pyjo
 from Pyjo.File import curfile
 from Pyjo.Test import *
 
+import json
+import subprocess
+import sys
+
 
 # The application of examples/calculator.py, which the test loads without starting a server
-t = Pyjo.Test.Pyjo.new(curfile().dirname().dirname().sibling('examples', 'calculator.py'))
+EXAMPLE = curfile().dirname().dirname().sibling('examples', 'calculator.py')
+t = Pyjo.Test.Pyjo.new(EXAMPLE)
 t.app.log.level = 'fatal'
 
 META = {'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientCapabilities': {}}
@@ -50,5 +55,23 @@ with subtest('Hosts and origins'):
     t.post_ok('/mcp', headers, json={}).status_is(421)
     headers = {'MCP-Protocol-Version': '2026-07-28', 'Mcp-Method': 'tools/list', 'Origin': 'http://evil.com'}
     t.post_ok('/mcp', headers, json={}).status_is(403)
+
+with subtest('Standard input and output'):
+    # The command stdio in a process of its own, which ends at the end of its input, once the responses are written
+    params = {'name': 'divide', 'arguments': {'a': 7, 'b': 2}, '_meta': META}
+    lines = [
+        json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': params}),
+        json.dumps({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list', 'params': {'_meta': META}}),
+        'not json',
+    ]
+    process = subprocess.run(
+        [sys.executable, EXAMPLE.to_str(), 'stdio'], input='\n'.join(lines) + '\n', capture_output=True, text=True
+    )
+    is_ok(process.returncode, 0, 'end of the input')
+    responses = {message['id']: message for message in map(json.loads, process.stdout.splitlines())}
+    is_deeply_ok(sorted(responses, key=str), [1, 2, None], 'nothing but a response on each line of the standard output')
+    is_ok(responses[1]['result']['structuredContent'], 3.5, 'tools/call')
+    is_ok(len(responses[2]['result']['tools']), 4, 'tools/list')
+    is_ok(responses[None]['error']['code'], -32700, 'parse error')
 
 done_testing()
