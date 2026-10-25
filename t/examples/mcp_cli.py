@@ -1,5 +1,7 @@
 import Pyjo.IOLoop
+import Pyjo.JSON
 import Pyjo.MCP.Server
+import Pyjo.SSE
 import Pyjo.Test.Pyjo
 import Pyjo.UserAgent
 import Pyjoyment
@@ -64,6 +66,32 @@ server.tool(
 )
 sql.routes.any('/mcp').to(cb=server.to_action())
 
+
+# Servers that answer with a stream of events, a notification of their own before the response, as Streamable HTTP
+# allows, with a Content-Length, whose events the user agent parses, or chunked, whose events stay in the body
+def streamer(chunked):
+    def events(c):
+        def respond(response):
+            notification = {'jsonrpc': '2.0', 'method': 'notifications/message', 'params': {'level': 'info'}}
+            data = b''.join(Pyjo.SSE.build_event({'text': Pyjo.JSON.to_json(m)}) for m in (notification, response))
+            c.res.headers.content_type = 'text/event-stream'
+            if chunked:
+                c.write_chunk(data).write_chunk(b'')
+            else:
+                c.render(data=data)
+
+        c.render_later()
+        return server.dispatch_p(c.req.json()).then(respond)
+
+    application = Pyjoyment.new()
+    application.log.level = 'fatal'
+    application.routes.post('/mcp').to(cb=events)
+    return application
+
+
+stream = streamer(chunked=False)
+chunked = streamer(chunked=True)
+
 with subtest('Commands'):
     code, out, err = run(calculator)
     is_ok(code, 0, 'success')
@@ -124,6 +152,10 @@ with subtest('Text'):
     code, out, err = run(shop, 'search', '-q', 'shirt', '--no-in-stock')
     like_ok(out, re.compile(r'^Pyjo shirt  25\.0   0$', re.M), 'negated flag')
     is_ok(run(shop, 'search', '-q', 'nothing')[1], '[]\n', 'empty list as the text of the server')
+    code, out, err = run(stream, 'execute-sql', '-r', 'eu', '-q', 'SELECT 1')
+    is_deeply_ok((code, out, err), (0, 'eu: SELECT 1 None []\n', ''), 'response in a stream of events')
+    code, out, err = run(chunked, 'execute-sql', '-r', 'eu', '-q', 'SELECT 1')
+    is_deeply_ok((code, out, err), (0, 'eu: SELECT 1 None []\n', ''), 'response in a chunked stream of events')
 
 with subtest('JSON'):
     code, out, err = run(calculator, '-f', 'json', 'divide', '-a', '7', '-b', '2')

@@ -27,6 +27,7 @@ import Pyjo.JSON
 import Pyjo.JSON.RPC
 import Pyjo.MCP
 import Pyjo.MCP.Tool
+import Pyjo.SSE
 import Pyjo.UserAgent
 import Pyjo.YAML
 
@@ -95,8 +96,29 @@ class Client:
             for name, path, _ in self.tool.header_params if self.tool is not None else []:
                 if (value := value_at(params['arguments'], path)) is not None:
                     headers[f'Mcp-Param-{name}'] = header(value)
-        tx = ua.post(self.url, headers, json=request)
-        if (response := tx.res.json()) is None:
+        tx = ua.build_tx('POST', self.url, headers, json=request)
+
+        # The events of a stream, which the user agent parses, or which stay in the body of a chunked one
+        events = []
+        tx.res.content.on('sse', lambda content, event: event and events.append(event))
+        tx = ua.start(tx)
+        response = tx.res.json()
+
+        # The message of the stream with the id of the request is the response, after the messages of the server
+        if (tx.res.headers.content_type or '').startswith('text/event-stream'):
+            buffer = bytearray(tx.res.body)
+            while (event := Pyjo.SSE.parse_event(buffer)) is not None:
+                events.append(event)
+            for event in events:
+                message = Pyjo.JSON.j(event['text'])
+                if (
+                    isinstance(message, dict)
+                    and message.get('id') == request['id']
+                    and message.keys() & {'result', 'error'}
+                ):
+                    response = message
+
+        if response is None:
             # The text of the error, as a server of an older revision of MCP tells the revisions it supports in plain text
             error = tx.error or {}
             message = f'{self.url}: {error.get("code") or ""} {error.get("message", "No response")}'.strip()
