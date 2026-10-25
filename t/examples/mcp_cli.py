@@ -164,6 +164,19 @@ with subtest('Errors'):
     code, out, err = run(Pyjoyment.new(), 'add')
     is_ok(code, 1, 'not a server of MCP')
     like_ok(err, re.compile(r'^/mcp: 404 Not Found$'), 'message of HTTP')
+    legacy = Pyjoyment.new()
+    legacy.log.level = 'fatal'
+    legacy.routes.post('/mcp').to(
+        cb=lambda c: c.render(
+            text='Bad Request: Unsupported protocol version (supported versions: 2025-11-25)', format='txt', status=400
+        )
+    )
+    code, out, err = run(legacy, 'add')
+    is_deeply_ok(
+        (code, err),
+        (1, '/mcp: 400 Bad Request: Bad Request: Unsupported protocol version (supported versions: 2025-11-25)\n'),
+        'text of the error of HTTP',
+    )
 
 cli.ua.close()
 

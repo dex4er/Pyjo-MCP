@@ -97,10 +97,12 @@ class Client:
                     headers[f'Mcp-Param-{name}'] = header(value)
         tx = ua.post(self.url, headers, json=request)
         if (response := tx.res.json()) is None:
+            # The text of the error, as a server of an older revision of MCP tells the revisions it supports in plain text
             error = tx.error or {}
-            raise Pyjo.Exception.new(
-                f'{self.url}: {error.get("code") or ""} {error.get("message", "No response")}'.strip()
-            )
+            message = f'{self.url}: {error.get("code") or ""} {error.get("message", "No response")}'.strip()
+            if (tx.res.headers.content_type or '').startswith('text/plain') and (body := tx.res.text.strip()):
+                message += f': {body}'
+            raise Pyjo.Exception.new(message)
         return response
 
 
