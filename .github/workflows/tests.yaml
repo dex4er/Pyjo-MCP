@@ -82,7 +82,8 @@ jobs:
           PYTHONDEVMODE: "1"
           PYTHONWARNINGS: error::SyntaxWarning,error::DeprecationWarning
         run: |
-          uv run --with-editable ../Pyjoyment python -m Pyjo.Prove -l --color --timeout 60 --capture-stderr -r t 2>&1 | tee prove.log
+          mkdir -p "$GITHUB_WORKSPACE/junit"
+          uv run --with-editable ../Pyjoyment python -m Pyjo.Prove -l --color --timeout 60 --capture-stderr --formatter "junit=$GITHUB_WORKSPACE/junit/pyjo-mcp.xml" --formatter "markdown=$GITHUB_STEP_SUMMARY" -r t 2>&1 | tee prove.log
           if grep -n 'ResourceWarning:' prove.log; then exit 1; fi
 
       - name: Run the tests of Pyjoyment with the distribution
@@ -93,8 +94,33 @@ jobs:
           PYTHONWARNINGS: error::SyntaxWarning,error::DeprecationWarning
           TEST_ONLINE: "1"
         run: |-
-          uv run --project ../Pyjo-MCP --with-editable . python -m Pyjo.Prove -l --color -j 4 --timeout 60 --capture-stderr --stderr-lines 1000 -r t 2>&1 | tee prove.log
+          uv run --project ../Pyjo-MCP --with-editable . python -m Pyjo.Prove -l --color -j 4 --timeout 60 --capture-stderr --stderr-lines 1000 --formatter "junit=$GITHUB_WORKSPACE/junit/pyjoyment.xml" --formatter "markdown=$GITHUB_STEP_SUMMARY" -r t 2>&1 | tee prove.log
           if grep -n 'ResourceWarning:' prove.log; then exit 1; fi
+
+      # As in Pyjoyment: the JUnit XML of the harness, of the tests of the
+      # distribution and of Pyjoyment, as the annotations of the failed tests,
+      # without a check of its own, and without the summary of the job, which
+      # the harness writes itself with its formatter markdown
+      - name: Publish the report of the tests
+        if: ${{ !cancelled() }}
+        uses: mikepenz/action-junit-report@v6
+        with:
+          report_paths: junit/*.xml
+          annotate_only: true
+          job_summary: false
+          include_skipped: false
+
+      # The JUnit XML for the summary of the summaries of all the jobs, which
+      # the job report makes, both files in one directory, as its script reads
+      # the files of the directory of each job only
+      - name: Upload the report of the tests
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-prove (python ${{ matrix.python }})
+          path: junit/*.xml
+          if-no-files-found: ignore
+          retention-days: 7
 
   # The client of the MCP SDK, of the dependency group `sdk`, against the
   # server of the example, as an implementation of the specification of its
@@ -139,6 +165,93 @@ jobs:
         env:
           PYTHONDEVMODE: "1"
           PYTHONWARNINGS: error::SyntaxWarning,error::DeprecationWarning
-        run: |-
-          uv run --group sdk --with-editable ../Pyjoyment python -m Pyjo.Prove -l --color --timeout 120 --capture-stderr -r t/sdk 2>&1 | tee prove.log
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/junit"
+          uv run --group sdk --with-editable ../Pyjoyment python -m Pyjo.Prove -l --color --timeout 120 --capture-stderr --formatter "junit=$GITHUB_WORKSPACE/junit/sdk.xml" --formatter "markdown=$GITHUB_STEP_SUMMARY" -r t/sdk 2>&1 | tee prove.log
           if grep -n 'ResourceWarning:' prove.log; then exit 1; fi
+
+      # As above.
+      - name: Publish the report of the tests
+        if: ${{ !cancelled() }}
+        uses: mikepenz/action-junit-report@v6
+        with:
+          report_paths: junit/*.xml
+          annotate_only: true
+          job_summary: false
+          include_skipped: false
+
+      # As above.
+      - name: Upload the report of the tests
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-sdk (python 3.15)
+          path: junit/*.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # The summary of the summaries of the jobs of the tests, from the JUnit XML
+  # that they upload, as the summary of this job and as a comment of the pull
+  # request, which each run edits, as in Pyjoyment, with the script of its
+  # checkout, which needs Pyjo.DOM. A pull request of a fork has a token that
+  # cannot comment.
+  report:
+    name: report
+    needs:
+      - prove
+      - sdk
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout Pyjoyment
+        uses: actions/checkout@v7
+        with:
+          repository: dex4er/Pyjoyment
+          ref: ${{ inputs.pyjoyment-ref || 'main' }}
+          path: Pyjoyment
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+          allow-prereleases: true
+
+      - name: Download the reports of the tests
+        uses: actions/download-artifact@v8
+        with:
+          pattern: junit-*
+          path: reports
+
+      # The names and the URLs of the jobs of the run, of its latest attempt,
+      # which link the jobs of the summary
+      - name: Summary of the reports
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONPATH: Pyjoyment
+        run: |-
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" --jq '.jobs[] | [.name, .html_url] | @tsv' > jobs.tsv
+          python Pyjoyment/.github/scripts/test-report.py reports jobs.tsv > report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+      # The comment that starts with the marker of the report, edited, or a new one
+      - name: Comment on the pull request
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name ==
+          github.repository }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |-
+          id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --jq '.[] | select(.body | startswith("<!-- pyjo-prove-report -->")) | .id' | head -n 1)"
+          if [ -n "$id" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@report.md > /dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@report.md > /dev/null
+          fi
