@@ -63,6 +63,18 @@ uv run python calculator.py daemon -l http://127.0.0.1:3000
 Its endpoint is `http://127.0.0.1:3000/mcp`, of the transport Streamable HTTP.
 The whole calculator is [`examples/calculator.py`](examples/calculator.py).
 
+The same application serves the transport stdio too, with a hook:
+
+```python
+hook('before_server_start', server.to_stdio())
+```
+
+A client of MCP, as Claude Code, then starts it with the command `stdio`:
+
+```sh
+claude mcp add calculator -- uv run python examples/calculator.py stdio
+```
+
 [`examples/weather.py`](examples/weather.py) is a gateway to the weather of
 [Open-Meteo](https://open-meteo.com), which needs no key, with the tools
 `find_places`, `current_weather`, `forecast` and `hourly_forecast`, which
@@ -93,9 +105,9 @@ are on [Read the Docs](https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/lat
 
 ## Status
 
-A server of the tools of MCP over Streamable HTTP, with `server/discover`,
-`tools/list` and `tools/call`. Prompts, resources, the subscriptions, the
-streams of SSE, the transport stdio and the client are to come.
+A server of the tools of MCP over Streamable HTTP and stdio, with
+`server/discover`, `tools/list` and `tools/call`. Prompts, resources, the
+subscriptions, the streams of SSE and the client are to come.
 
 ## License
 

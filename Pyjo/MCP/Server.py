@@ -27,6 +27,9 @@ Pyjo.MCP.Server - Server of MCP
     app.plugin('AllowedHosts')
     app.routes.any('/mcp').to(cb=server.to_action())
 
+    # The transport stdio too, of the command stdio
+    app.hook('before_server_start', server.to_stdio())
+
 :mod:`Pyjo.MCP.Server` is a server of the Model Context Protocol, of the
 revision :data:`Pyjo.MCP.PROTOCOL_VERSION` of the specification, with the
 methods ``server/discover``, ``tools/list`` and ``tools/call``, whose tools are
@@ -40,8 +43,14 @@ The requests come over Streamable HTTP, the transport of
 which answers each request with a JSON object. The specification requires the
 validation of ``Origin`` of a server on ``localhost``, against DNS rebinding,
 which :mod:`Pyjoyment.Plugin.AllowedHosts` does, for the whole application or
-the routes under its helper. :meth:`~Pyjo_MCP_Server.dispatch_p` handles a
-message of any other transport.
+the routes under its helper.
+
+The requests come over the transport stdio too, a message of JSON-RPC on each
+line of the standard input and output, which
+:meth:`~Pyjo_MCP_Server.to_stdio` serves when the command ``stdio`` of
+:mod:`Pyjoyment` starts the application, and the log goes to the standard
+error. :meth:`~Pyjo_MCP_Server.serve` serves any other stream of messages, and
+:meth:`~Pyjo_MCP_Server.dispatch_p` handles a message of any other transport.
 
 See also
 --------
@@ -56,9 +65,12 @@ Classes
 import Pyjo.Base
 import Pyjo.EventEmitter
 import Pyjo.Exception
+import Pyjo.IOLoop.Messages
 import Pyjo.JSON
 import Pyjo.JSON.RPC
+import Pyjo.Log
 import Pyjo.Promise
+import Pyjo.Server.Stdio
 
 # The package of the distribution, imported relatively, as pyright takes the regular package Pyjo of Pyjoyment, which
 # hides the namespace that extend_path keeps open
@@ -97,14 +109,30 @@ class Context(Pyjo.Base.object):
             return context.client_info.get('name', 'unknown')
     """
 
-    def __init__(self, controller: 'Pyjoyment.Controller.object | None' = None) -> None:
+    def __init__(
+        self,
+        controller: 'Pyjoyment.Controller.object | None' = None,
+        client: Pyjo.JSON.RPC.Client | None = None,
+        log: Pyjo.Log.object | None = None,
+    ) -> None:
         """::
 
             context = Pyjo.MCP.Server.Context.new()
             context = Pyjo.MCP.Server.Context.new(c)
+            context = Pyjo.MCP.Server.Context.new(client=client, log=app.log)
 
         Construct a new :class:`Context` object.
         """
+        self.client = client
+        """::
+
+            client = context.client
+
+        The :class:`Pyjo.JSON.RPC.Client` of the peer of a stream of messages,
+        as the transport stdio, whose requests go to the client of MCP on the
+        same stream, or ``None`` for Streamable HTTP.
+        """
+
         self.client_capabilities: dict[str, Any] = {}
         """::
 
@@ -129,6 +157,16 @@ class Context(Pyjo.Base.object):
 
         The :mod:`Pyjoyment.Controller` of the request of HTTP, or ``None`` for
         another transport.
+        """
+
+        self.log = log
+        """::
+
+            log = context.log
+
+        The :mod:`Pyjo.Log` of the errors of the server of a request without
+        a controller, as the one of the application for the transport stdio,
+        or ``None``.
         """
 
         self.meta: dict[str, Any] = {}
@@ -280,6 +318,29 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
             return Pyjo.Promise.resolve(_error(None, Pyjo.JSON.RPC.INVALID_REQUEST, 'Invalid Request'))
         return self._rpc.dispatch_p(message, context)
 
+    def serve(self, peer: Any, log: Pyjo.Log.object | None = None) -> Pyjo.JSON.RPC.Client:
+        """::
+
+            client = server.serve(messages)
+            client = server.serve(messages, log=app.log)
+
+        Serve the methods to a peer on a stream of messages in both directions,
+        as a :mod:`Pyjo.IOLoop.Messages` object, and return the
+        :class:`Pyjo.JSON.RPC.Client` of the peer, as
+        :meth:`~Pyjo.JSON.RPC.Pyjo_JSON_RPC.serve` does, with the rules of
+        :meth:`dispatch_p` and a :class:`Context` of its own for each request,
+        whose ``client`` is the one of the peer and whose ``log`` gets the
+        errors of the server. ::
+
+            # The transport stdio, a message on each line of the standard input and output
+            messages = Pyjo.IOLoop.Messages.new(Pyjo.IOLoop.Stdio.new())
+            server.serve(messages)
+            messages.start()
+        """
+        return self._rpc.serve(
+            peer, dispatch_p=lambda message, client: self.dispatch_p(message, Context(client=client, log=log))
+        )
+
     @overload
     def tool[F: Callable[..., Any]](self, name: F, cb: None = None) -> F: ...
 
@@ -374,6 +435,34 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
 
         return action
 
+    def to_stdio(self) -> Callable[[Any, Any], None]:
+        """::
+
+            hook = server.to_stdio()
+
+        The hook ``before_server_start`` of an application of :mod:`Pyjoyment`,
+        the transport stdio, which serves the methods with :meth:`serve` on
+        the standard input and output of :mod:`Pyjo.Server.Stdio`, a message
+        of JSON-RPC on each line, when the command ``stdio`` starts the
+        application, and does nothing for another server, so that the same
+        application serves Streamable HTTP with ``daemon``. ::
+
+            # Pyjoyment.Lite
+            hook('before_server_start', server.to_stdio())
+
+            # Pyjoyment
+            app.hook('before_server_start', server.to_stdio())
+        """
+
+        def hook(server: Any, app: Any) -> None:
+            def stream(server: Pyjo.Server.Stdio.object, stream: Any) -> None:
+                self.serve(Pyjo.IOLoop.Messages.new(stream), log=app.log)
+
+            if isinstance(server, Pyjo.Server.Stdio.object):
+                server.on('stream', stream)
+
+        return hook
+
     def _discover(self, context: Context, **params: Any) -> dict[str, Any]:
         self._meta(context, params)
         capabilities: dict[str, Any] = {}
@@ -388,6 +477,8 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         # An error of the server, which the log of the application of the request gets too
         if isinstance(context, Context) and (c := context.controller) is not None:
             c.helpers.log().error(Pyjo.Exception.new(e).inspect())
+        elif isinstance(context, Context) and (log := context.log) is not None:
+            log.error(Pyjo.Exception.new(e).inspect())
         self.emit('exception', e, context)
 
     def _headers(self, c: 'Pyjoyment.Controller.object', request: dict[str, Any]) -> str | None:

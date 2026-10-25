@@ -4,6 +4,7 @@ import Pyjo.Test.Pyjo
 from Pyjo.Test import *
 
 import datetime
+import json
 import os
 import re
 import subprocess
@@ -160,6 +161,22 @@ with subtest('Security'):
     call(t, 'secret', {'Authorization': 'Bearer open'}).status_is(401)
     call(t, 'secret', {'Authorization': 'Bearer sesame', 'Host': 'evil.example'}).status_is(421)
     call(t, 'secret', {'Authorization': 'Bearer sesame', 'Origin': 'https://evil.example'}).status_is(403)
+
+with subtest('Standard input and output'):
+    params = {'name': 'greet', 'arguments': {'name': 'Pyjo'}, '_meta': META}
+    result = subprocess.run(
+        [sys.executable, EXAMPLES.child('stdio.py').to_str(), 'stdio'],
+        input=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': params}) + '\n',
+        capture_output=True,
+        text=True,
+        env={**os.environ, 'PYJO_LOG_LEVEL': 'info'},
+        timeout=60,
+    )
+    is_ok(result.returncode, 0, 'end of the input')
+    is_ok(json.loads(result.stdout)['result']['content'][0]['text'], 'Hello, Pyjo!', 'response on the standard output')
+    like_ok(result.stderr, re.compile(r'Greeting Pyjo'), 'log on the standard error')
+    t = tutorial('stdio')
+    call(t, 'greet', name='Pyjo').status_is(200).json_is('/result/content/0/text', 'Hello, Pyjo!')
 
 with subtest('Testing'):
     result = subprocess.run(

@@ -1,3 +1,5 @@
+import Pyjo.EventEmitter
+import Pyjo.Log
 import Pyjo.MCP
 import Pyjo.MCP.Server
 import Pyjo.MCP.Tool
@@ -8,6 +10,7 @@ import Pyjoyment
 from Pyjo.Test import *
 
 import base64
+import json
 import re
 
 
@@ -240,7 +243,7 @@ with subtest('Protocol errors'):
     is_ok(len(exceptions), 1, 'exception emitted')
     is_ok(len(logged), 1, 'exception logged')
     is_ok(logged[0][0], 'error', 'right level')
-    like_ok(logged[0][1], re.compile(r'^Secret at '), 'right message')
+    like_ok(str(logged[0][1]), re.compile(r'^Secret at '), 'right message')
 
 with subtest('Request metadata'):
     request('tools/list', meta=None).status_is(400).json_is(
@@ -346,5 +349,68 @@ with subtest('Other transports'):
     is_ok(results[0]['error']['code'], -32602, 'context of its own')
     server.dispatch_p('{').then(results.append).wait()
     is_ok(results[1]['error']['code'], -32700, 'parse error')
+
+with subtest('Streams of messages'):
+    # A peer of serve, as Pyjo.IOLoop.Messages, whose tool answers once the test settles it, the second request first
+    class Peer(Pyjo.EventEmitter.object):
+        def __init__(self):
+            super().__init__()
+            self.closed = False
+            self.sent = []
+
+        def close_gracefully(self):
+            self.closed = True
+
+        def send(self, message):
+            self.sent.append(json.loads(message))
+            return self
+
+    streamed = Pyjo.MCP.Server.new(name='ExampleServer')
+    contexts = []
+
+    @streamed.tool(context=True)
+    def who(context) -> str:
+        promise = Pyjo.Promise.new()
+        contexts.append((context, promise))
+        return promise
+
+    @streamed.tool
+    def broken() -> str:
+        raise RuntimeError('Broken tool')
+
+    logged = []
+    log = Pyjo.Log.new(level='error')
+    log.unsubscribe('message').on('message', lambda log, level, *lines: logged.append((level, *lines)))
+    peer = Peer()
+    client = streamed.serve(peer, log=log)
+    for id, name in ((1, 'First'), (2, 'Second')):
+        meta = {**META, 'io.modelcontextprotocol/clientInfo': {'name': name, 'version': '1.0.0'}}
+        params = {'name': 'who', 'arguments': {}, '_meta': meta}
+        peer.emit('message', json.dumps({'jsonrpc': '2.0', 'id': id, 'method': 'tools/call', 'params': params}))
+    is_ok(len(contexts), 2, 'requests at the same time')
+    ok(contexts[0][0] is not contexts[1][0], 'context of its own for each request')
+    ok(contexts[0][0].client is client, 'client of the peer')
+    for context, promise in reversed(contexts):
+        promise.resolve(context.client_info['name'])
+    Pyjo.Promise.timer(0.01).wait()
+    is_deeply_ok(
+        [(message['id'], message['result']['content'][0]['text']) for message in peer.sent],
+        [(2, 'Second'), (1, 'First')],
+        'responses in the order they are there',
+    )
+    message = {'jsonrpc': '2.0', 'id': 3, 'method': 'tools/list', 'params': {'_meta': META}}
+    peer.emit('message', json.dumps([message]))
+    peer.emit('message', json.dumps({**message, 'id': None}))
+    Pyjo.Promise.timer(0.01).wait()
+    is_deeply_ok([message['error']['code'] for message in peer.sent[2:]], [-32600, -32600], 'no batch and no null id')
+    params = {'name': 'broken', 'arguments': {}, '_meta': META}
+    peer.emit('message', json.dumps({'jsonrpc': '2.0', 'id': 4, 'method': 'tools/call', 'params': params}))
+    Pyjo.Promise.timer(0.01).wait()
+    is_ok(peer.sent[4]['error']['code'], -32603, 'error of the server')
+    is_ok(logged[0][0], 'error', 'logged')
+    like_ok(str(logged[0][1]), re.compile(r'Broken tool'), 'message of the exception')
+    ok(not peer.closed, 'open')
+    peer.emit('end')
+    ok(peer.closed, 'closed at the end of the input')
 
 done_testing()

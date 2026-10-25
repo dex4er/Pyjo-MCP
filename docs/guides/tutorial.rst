@@ -150,6 +150,29 @@ Claude Code sends the token with the header that it is given:
 
     $ claude mcp add --transport http secure http://127.0.0.1:3000/mcp --header 'Authorization: Bearer sesame'
 
+Standard input and output
+-------------------------
+
+The transport stdio needs no port, no ``Host`` and no token: the client
+starts the server as its child process, and sends a message of JSON-RPC on
+each line of its standard input, whose responses come on the lines of its
+standard output. :meth:`~Pyjo.MCP.Server.Pyjo_MCP_Server.to_stdio` is the hook
+that serves the tools so, when the command
+:mod:`stdio <pyjoyment:Pyjoyment.Command.stdio>` starts the application, and
+the same application still serves Streamable HTTP with ``daemon``:
+
+.. literalinclude:: tutorial/stdio.py
+    :language: python
+
+The log of the application goes to the standard error, as anything else that
+the tools print, so that only the messages of MCP are on the standard output.
+The server ends when the client closes its standard input, once the requests
+in progress have their responses. Claude Code starts it with the command:
+
+.. code-block:: console
+
+    $ claude mcp add hello -- uv run python stdio.py stdio
+
 Testing
 -------
 
