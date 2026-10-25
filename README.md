@@ -74,6 +74,18 @@ uv run python examples/weather.py daemon -l http://127.0.0.1:3000
 claude mcp add --transport http weather http://127.0.0.1:3000/mcp
 ```
 
+[`examples/mcp_cli.py`](examples/mcp_cli.py) is a client of the command line
+for the tools of any server of MCP: a tool is a command, in kebab-case, and its
+arguments are options, with the descriptions and the constraints of its
+`inputSchema` in the help of the command. The result is text, with tables of
+the lists of objects, or JSON:
+
+```sh
+uv run python examples/mcp_cli.py --help
+uv run python examples/mcp_cli.py forecast --place Kraków --language pl --days 2
+uv run python examples/mcp_cli.py hourly-forecast -p Warsaw -H 6 -f json
+```
+
 ## Documentation
 
 The tutorial, which makes servers of MCP step by step, and the API of the package
