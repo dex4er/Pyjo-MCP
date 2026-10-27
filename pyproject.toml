@@ -25,7 +25,7 @@ Documentation = "https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/latest/"
 
 # Sphinx of docs/, which Read the Docs and the workflow Docs install with uv sync --group docs
 [dependency-groups]
-docs = ["sphinx>=9.1.1"]
+docs = ["sphinx>=9.2.0"]
 # The MCP SDK, whose client t/sdk calls the server with, as an implementation of the specification of its own
 sdk = ["mcp>=2.3.0"]
 
