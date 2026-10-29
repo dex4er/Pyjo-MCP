@@ -247,6 +247,18 @@ with subtest('list_tools_p'):
     promise.then(results.append).wait()
     is_ok(len(results[0]['tools']), 3, 'result')
 
+with subtest('read_response'):
+    request = client.build_request('tools/list')
+    tx = client.ua.start(client.build_tx(request))
+    response = client.read_response(tx, request)
+    is_ok(response['id'], request['id'], 'response')
+
+    with contextlib.redirect_stdout(io.StringIO()) as stdout:
+        request = client.build_request('tools/list')
+        tx = client.ua.start(client.build_tx(request))
+        print(client.read_response(tx, request)['result']['tools'])
+    like_ok(stdout.getvalue(), r"^\[\{'name': 'add'", 'printed')
+
 with subtest('send_request'):
     request = client.build_request('server/discover')
     response = client.send_request(request)

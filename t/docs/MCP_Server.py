@@ -1,4 +1,4 @@
-import Pyjo.Test.Pyjo
+import Pyjo.MCP.Test
 import Pyjoyment
 
 from Pyjo.Test import *
@@ -57,11 +57,9 @@ with subtest('Synopsis'):
     app.log.level = 'fatal'
     app.plugin('AllowedHosts')
     app.routes.any('/mcp').to(cb=server.to_action())
-    t = Pyjo.Test.Pyjo.new(app)
-    headers = {'MCP-Protocol-Version': '2026-07-28', 'Mcp-Method': 'server/discover'}
-    t.post_ok('/mcp', headers, json=request('server/discover')).status_is(200)
-    t.json_is('/result/instructions', 'Arithmetic for the model.')
-    t.post_ok('/mcp', {**headers, 'Origin': 'https://evil.com'}, json=request('server/discover')).status_is(403)
+    t = Pyjo.MCP.Test.new(app)
+    t.discover_ok().status_is(200).result_is('/instructions', 'Arithmetic for the model.')
+    t.discover_ok(headers={'Origin': 'https://evil.com'}).status_is(403)
     t.ua.close()
 
 with subtest('Context'):

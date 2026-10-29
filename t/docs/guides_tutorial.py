@@ -1,5 +1,5 @@
 import Pyjo.File
-import Pyjo.Test.Pyjo
+import Pyjo.MCP.Test
 
 from Pyjo.Test import *
 
@@ -42,30 +42,19 @@ SEARCH = {
 
 
 def tutorial(name):
-    t = Pyjo.Test.Pyjo.new(EXAMPLES.child(f'{name}.py'))
+    t = Pyjo.MCP.Test.new(EXAMPLES.child(f'{name}.py'))
     t.app.log.level = 'fatal'
+    t.client.name = 'ExampleClient'
     return t
-
-
-def request(t, method, headers=None, **params):
-    sent = {'MCP-Protocol-Version': '2026-07-28', 'Mcp-Method': method, **(headers or {})}
-    if 'name' in params:
-        sent['Mcp-Name'] = params['name']
-    message = {'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': {**params, '_meta': META}}
-    return t.post_ok('/mcp', sent, json=message)
-
-
-def call(t, tool, headers=None, /, **arguments):
-    return request(t, 'tools/call', headers, name=tool, arguments=arguments)
 
 
 with subtest('A first server'):
     t = tutorial('hello')
-    request(t, 'server/discover').status_is(200).json_is('/result/capabilities', {'tools': {}})
-    t.json_is('/result/_meta/io.modelcontextprotocol~1serverInfo', {'name': 'hello', 'version': '1.0.0'})
-    request(t, 'tools/list').status_is(200)
-    t.json_is(
-        '/result/tools',
+    t.discover_ok().status_is(200).result_is('/capabilities', {'tools': {}})
+    t.result_is('/_meta/io.modelcontextprotocol~1serverInfo', {'name': 'hello', 'version': '1.0.0'})
+    t.list_tools_ok().status_is(200)
+    t.result_is(
+        '/tools',
         [
             {
                 'name': 'greet',
@@ -79,45 +68,43 @@ with subtest('A first server'):
             }
         ],
     )
-    call(t, 'greet', name='Pyjo').status_is(200)
-    t.json_is('/result/content', [{'type': 'text', 'text': 'Hello, Pyjo!'}]).json_is('/result/isError', False)
+    t.call_ok('greet', name='Pyjo').status_is(200)
+    t.result_is('/content', [{'type': 'text', 'text': 'Hello, Pyjo!'}]).is_error_is(False)
     t.get_ok('/mcp').status_is(405)
     t.post_ok('/mcp', {'Origin': 'https://evil.example'}, json={}).status_is(403)
 
 with subtest('Schemas'):
     t = tutorial('schemas')
-    request(t, 'tools/list').status_is(200)
-    t.json_is('/result/tools/0/inputSchema', SEARCH)
-    t.json_is('/result/tools/0/inputSchema/properties/limit/maximum', 10)
-    t.json_is('/result/tools/0/inputSchema/properties/sort/enum', ['name', 'price'])
-    t.json_is('/result/tools/0/inputSchema/required', ['query'])
-    t.json_is('/result/tools/0/outputSchema/type', 'array')
-    t.json_is('/result/tools/0/outputSchema/items/properties/price', {'type': 'number', 'description': 'Price in EUR'})
-    t.json_is('/result/tools/0/annotations', {'readOnlyHint': True})
-    call(t, 'search', query='PYJO', sort='price').status_is(200)
-    names = [item['name'] for item in t.tx.res.json('/result/structuredContent')]
+    t.list_tools_ok().status_is(200)
+    t.tool_is('search', '/inputSchema', SEARCH)
+    t.tool_is('search', '/inputSchema/properties/limit/maximum', 10)
+    t.tool_is('search', '/inputSchema/properties/sort/enum', ['name', 'price'])
+    t.tool_is('search', '/inputSchema/required', ['query'])
+    t.tool_is('search', '/outputSchema/type', 'array')
+    t.tool_is('search', '/outputSchema/items/properties/price', {'type': 'number', 'description': 'Price in EUR'})
+    t.tool_is('search', '/annotations', {'readOnlyHint': True})
+    t.call_ok('search', query='PYJO', sort='price').status_is(200)
+    names = [item['name'] for item in t.response['result']['structuredContent']]
     is_deeply_ok(names, ['Pyjo sticker', 'Pyjo mug', 'Pyjo shirt'], 'sorted by price')
-    t.json_like('/result/content/0/text', re.compile(r'^\[\{"name":"Pyjo sticker",'))
-    call(t, 'search', query='pyjo', in_stock=True, limit=1).status_is(200)
-    t.json_is('/result/structuredContent', [{'name': 'Pyjo mug', 'price': 12.5, 'stock': 3}])
-    call(t, 'search', query='pyjo', sort='stock').status_is(200).json_is('/result/isError', True)
-    t.json_is('/result/content/0/text', 'Invalid arguments:\n/sort: Not in enum: "name", "price".')
+    t.text_content_like(re.compile(r'^\[\{"name":"Pyjo sticker",'))
+    t.call_ok('search', query='pyjo', in_stock=True, limit=1).status_is(200)
+    t.structured_content_is([{'name': 'Pyjo mug', 'price': 12.5, 'stock': 3}])
+    t.call_ok('search', query='pyjo', sort='stock').status_is(200).is_error_is(True)
+    t.text_content_is('Invalid arguments:\n/sort: Not in enum: "name", "price".')
 
 with subtest('Errors'):
     t = tutorial('errors')
     tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
-    call(t, 'book', date=tomorrow, seats=2).status_is(200).json_is(
-        '/result/content/0/text', f'Booked 2 seats on {tomorrow}.'
-    )
-    call(t, 'book', date='2020-01-01').status_is(200).json_is('/result/isError', True)
-    t.json_is('/result/content/0/text', 'Invalid date 2020-01-01: the flight has to be in the future.')
-    call(t, 'book', date='tomorrow').status_is(200).json_is('/result/isError', True)
-    t.json_is('/result/content/0/text', 'Invalid date tomorrow: expected YYYY-MM-DD.')
-    call(t, 'book', date=tomorrow, seats=0).status_is(200).json_is('/result/isError', True)
-    t.json_is('/result/content/0/text', 'Invalid arguments:\n/seats: Less than the minimum 1.')
-    call(t, 'cancel').status_is(200).json_is('/error', {'code': -32602, 'message': 'Unknown tool: cancel'})
-    call(t, 'book', date=tomorrow, seats=10).status_is(500)
-    t.json_is('/error', {'code': -32603, 'message': 'Internal error'}).content_unlike(re.compile(r'booking system'))
+    t.call_ok('book', date=tomorrow, seats=2).status_is(200).text_content_is(f'Booked 2 seats on {tomorrow}.')
+    t.call_ok('book', date='2020-01-01').status_is(200).is_error_is(True)
+    t.text_content_is('Invalid date 2020-01-01: the flight has to be in the future.')
+    t.call_ok('book', date='tomorrow').status_is(200).is_error_is(True)
+    t.text_content_is('Invalid date tomorrow: expected YYYY-MM-DD.')
+    t.call_ok('book', date=tomorrow, seats=0).status_is(200).is_error_is(True)
+    t.text_content_is('Invalid arguments:\n/seats: Less than the minimum 1.')
+    t.call_ok('cancel').status_is(200).error_is({'code': -32602, 'message': 'Unknown tool: cancel'})
+    t.call_ok('book', date=tomorrow, seats=10).status_is(500)
+    t.error_is({'code': -32603, 'message': 'Internal error'}).content_unlike(re.compile(r'booking system'))
 
 with subtest('Asynchronous tools'):
     t = tutorial('title')
@@ -133,17 +120,17 @@ with subtest('Asynchronous tools'):
         if url.host == 'example.com':
             url.scheme, url.host, url.port = base.scheme, base.host, base.port
 
-    call(t, 'title', url='https://example.com/page').status_is(200).json_is('/result/content/0/text', 'Pyjo & MCP')
-    call(t, 'title', url='https://example.com/untitled').status_is(200).json_is('/result/isError', True)
-    t.json_is('/result/content/0/text', 'The page has no title')
-    call(t, 'title', url='https://example.com/missing').status_is(200).json_is('/result/isError', True)
-    t.json_is('/result/content/0/text', 'The page answered 404 Not Found')
+    t.call_ok('title', url='https://example.com/page').status_is(200).text_content_is('Pyjo & MCP')
+    t.call_ok('title', url='https://example.com/untitled').status_is(200).is_error_is(True)
+    t.text_content_is('The page has no title')
+    t.call_ok('title', url='https://example.com/missing').status_is(200).is_error_is(True)
+    t.text_content_is('The page answered 404 Not Found')
     t.ua.close()
 
 with subtest('Context'):
     t = tutorial('context')
-    call(t, 'whoami', {'User-Agent': 'Test'}).status_is(200)
-    t.json_is('/result/content/0/text', 'ExampleClient 2026-07-28, with Test')
+    t.client.headers = {'User-Agent': 'Test'}
+    t.call_ok('whoami').status_is(200).text_content_is('ExampleClient 2026-07-28, with Test')
 
 with subtest('Security'):
     os.environ['MCP_TOKEN'] = 'sesame'
@@ -153,14 +140,18 @@ with subtest('Security'):
         del os.environ['MCP_TOKEN']
     t.get_ok('/').status_is(200).content_is('The MCP endpoint is /mcp.')
     t.get_ok('/', {'Host': 'evil.example'}).status_is(200)
-    call(t, 'secret', {'Authorization': 'Bearer sesame'}).status_is(200).json_is(
-        '/result/content/0/text', 'The cake is a lie.'
-    )
-    call(t, 'secret', {'Authorization': 'Bearer sesame', 'Host': 'mcp.example.com'}).status_is(200)
-    call(t, 'secret').status_is(401).header_is('WWW-Authenticate', 'Bearer').json_is({'error': 'Unauthorized'})
-    call(t, 'secret', {'Authorization': 'Bearer open'}).status_is(401)
-    call(t, 'secret', {'Authorization': 'Bearer sesame', 'Host': 'evil.example'}).status_is(421)
-    call(t, 'secret', {'Authorization': 'Bearer sesame', 'Origin': 'https://evil.example'}).status_is(403)
+    t.client.headers = {'Authorization': 'Bearer sesame'}
+    t.call_ok('secret').status_is(200).text_content_is('The cake is a lie.')
+    t.client.headers = {'Authorization': 'Bearer sesame', 'Host': 'mcp.example.com'}
+    t.call_ok('secret').status_is(200)
+    t.client.headers = {}
+    t.call_ok('secret').status_is(401).header_is('WWW-Authenticate', 'Bearer').json_is({'error': 'Unauthorized'})
+    t.client.headers = {'Authorization': 'Bearer open'}
+    t.call_ok('secret').status_is(401)
+    t.client.headers = {'Authorization': 'Bearer sesame', 'Host': 'evil.example'}
+    t.call_ok('secret').status_is(421)
+    t.client.headers = {'Authorization': 'Bearer sesame', 'Origin': 'https://evil.example'}
+    t.call_ok('secret').status_is(403)
 
 with subtest('Standard input and output'):
     params = {'name': 'greet', 'arguments': {'name': 'Pyjo'}, '_meta': META}
@@ -176,7 +167,7 @@ with subtest('Standard input and output'):
     is_ok(json.loads(result.stdout)['result']['content'][0]['text'], 'Hello, Pyjo!', 'response on the standard output')
     like_ok(result.stderr, re.compile(r'Greeting Pyjo'), 'log on the standard error')
     t = tutorial('stdio')
-    call(t, 'greet', name='Pyjo').status_is(200).json_is('/result/content/0/text', 'Hello, Pyjo!')
+    t.call_ok('greet', name='Pyjo').status_is(200).text_content_is('Hello, Pyjo!')
 
 with subtest('Testing'):
     result = subprocess.run(
@@ -187,6 +178,6 @@ with subtest('Testing'):
         timeout=60,
     )
     is_ok(result.returncode, 0, 'test passes')
-    like_ok(result.stdout, re.compile(r'^ok 2 - Without a name$', re.M), 'subtests')
+    like_ok(result.stdout, re.compile(r'^ok 3 - Tools$', re.M), 'subtests')
 
 done_testing()

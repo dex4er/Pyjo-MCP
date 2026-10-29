@@ -176,8 +176,12 @@ in progress have their responses. Claude Code starts it with the command:
 Testing
 -------
 
-:mod:`Pyjo.Test.Pyjo` tests a server without starting it, as any application
-of Pyjoyment, with the requests of MCP that a client sends:
+:mod:`Pyjo.MCP.Test` tests a server without starting it, as
+:mod:`Pyjo.Test.Pyjo` tests any application of Pyjoyment, with the requests
+that :mod:`Pyjo.MCP.Client` sends: the ``_meta`` and the headers of MCP are
+made for each request, the arguments of a tool are keyword arguments after its
+name, and the assertions check the result, its text, its ``structuredContent``
+and ``isError``, the tools of ``tools/list`` and the errors of JSON-RPC:
 
 .. literalinclude:: tutorial/hello_test.py
     :language: python
@@ -189,6 +193,7 @@ of Pyjoyment, with the requests of MCP that a client sends:
 More
 ----
 
-The API of the server and of the tools is in :mod:`Pyjo.MCP.Server` and
-:mod:`Pyjo.MCP.Tool`, and the deployment of an application, with the servers
+The API of the server, of the tools, of the client and of the tests is in
+:mod:`Pyjo.MCP.Server`, :mod:`Pyjo.MCP.Tool`, :mod:`Pyjo.MCP.Client` and
+:mod:`Pyjo.MCP.Test`, and the deployment of an application, with the servers
 of Pyjoyment and a container, in its :doc:`cookbook <pyjoyment:guides/cookbook>`.

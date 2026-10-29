@@ -2,9 +2,9 @@ import Pyjo.EventEmitter
 import Pyjo.Log
 import Pyjo.MCP
 import Pyjo.MCP.Server
+import Pyjo.MCP.Test
 import Pyjo.MCP.Tool
 import Pyjo.Promise
-import Pyjo.Test.Pyjo
 import Pyjoyment
 
 from Pyjo.Test import *
@@ -100,25 +100,11 @@ app.log.unsubscribe('message')
 logged = []
 app.log.on('message', lambda log, level, *lines: logged.append((level, str(lines[-1]))))
 app.routes.any('/mcp').to(cb=server.to_action())
-t = Pyjo.Test.Pyjo.new(app)
-
-
-def request(method, params=None, id=1, meta=META, headers=None):
-    # A request of MCP with its _meta and its headers
-    params = {**(params or {}), '_meta': meta} if meta is not None else params
-    sent = {'MCP-Protocol-Version': '2026-07-28', 'Mcp-Method': method}
-    if params and method == 'tools/call':
-        sent['Mcp-Name'] = params['name']
-    sent.update(headers or {})
-    sent = {name: value for name, value in sent.items() if value is not None}
-    message = {'jsonrpc': '2.0', 'id': id, 'method': method}
-    if params is not None:
-        message['params'] = params
-    return t.post_ok('/mcp', sent, json=message)
-
+t = Pyjo.MCP.Test.new(app)
+t.client.name = 'ExampleClient'
 
 with subtest('Discovery'):
-    request('server/discover', id='discover-1').status_is(200).header_is(
+    t.mcp_ok('server/discover', id='discover-1').status_is(200).header_is(
         'Content-Type', 'application/json;charset=UTF-8'
     )
     t.json_is(
@@ -155,7 +141,7 @@ with subtest('Discovery'):
     )
 
 with subtest('Listing tools'):
-    request('tools/list').status_is(200)
+    t.mcp_ok('tools/list').status_is(200)
     t.json_is('/result/resultType', 'complete').json_is('/result/ttlMs', 0).json_is('/result/cacheScope', 'public')
     t.json_is('/result/_meta', SERVER_INFO).json_hasnt('/result/nextCursor')
     t.json_is(
@@ -177,11 +163,11 @@ with subtest('Listing tools'):
     t.json_is('/result/tools/7/inputSchema/properties/region/x-mcp-header', 'Region')
     names = [tool['name'] for tool in t.tx.res.json('/result/tools')]
     is_deeply_ok(names, [tool.name for tool in server.tools], 'tools in a deterministic order')
-    request('tools/list', {'cursor': 'next-page-cursor'}).status_is(200)
+    t.mcp_ok('tools/list', {'cursor': 'next-page-cursor'}).status_is(200)
     t.json_is('/error', {'code': -32602, 'message': 'Invalid cursor'})
 
 with subtest('Calling tools'):
-    request('tools/call', {'name': 'get_weather', 'arguments': {'location': 'New York'}}, id=2).status_is(200)
+    t.mcp_ok('tools/call', {'name': 'get_weather', 'arguments': {'location': 'New York'}}, id=2).status_is(200)
     t.json_is(
         {
             'jsonrpc': '2.0',
@@ -199,18 +185,18 @@ with subtest('Calling tools'):
             },
         }
     )
-    request('tools/call', {'name': 'add', 'arguments': {'a': 1, 'b': 2}}).status_is(200)
+    t.mcp_ok('tools/call', {'name': 'add', 'arguments': {'a': 1, 'b': 2}}).status_is(200)
     t.json_is('/result/structuredContent', 3).json_is('/result/content', [{'type': 'text', 'text': '3'}])
     t.json_hasnt('/result/ttlMs')
-    request('tools/call', {'name': 'later', 'arguments': {'value': 'async'}}).status_is(200)
+    t.mcp_ok('tools/call', {'name': 'later', 'arguments': {'value': 'async'}}).status_is(200)
     t.json_is('/result/content/0/text', 'async')
-    request('tools/call', {'name': 'twice', 'arguments': {'value': 21}}).status_is(200)
+    t.mcp_ok('tools/call', {'name': 'twice', 'arguments': {'value': 21}}).status_is(200)
     t.json_is('/result/structuredContent', 42)
-    request('tools/call', {'name': 'whoami'}, headers={'X-Test': 'Test'}).status_is(200)
+    t.mcp_ok('tools/call', {'name': 'whoami'}, headers={'X-Test': 'Test'}).status_is(200)
     t.json_is('/result/content/0/text', 'ExampleClient 2026-07-28 Test')
 
 with subtest('Tool execution errors'):
-    request('tools/call', {'name': 'book', 'arguments': {'date': '2025-08-08'}}, id=4).status_is(200)
+    t.mcp_ok('tools/call', {'name': 'book', 'arguments': {'date': '2025-08-08'}}, id=4).status_is(200)
     t.json_is(
         {
             'jsonrpc': '2.0',
@@ -223,22 +209,22 @@ with subtest('Tool execution errors'):
             },
         }
     )
-    request('tools/call', {'name': 'add', 'arguments': {'a': 1, 'b': 'x'}}).status_is(200)
+    t.mcp_ok('tools/call', {'name': 'add', 'arguments': {'a': 1, 'b': 'x'}}).status_is(200)
     t.json_is('/result/isError', True).json_is(
         '/result/content/0/text', 'Invalid arguments:\n/b: Expected integer - got string.'
     )
-    request('tools/call', {'name': 'add', 'arguments': {'a': 1}}).status_is(200)
+    t.mcp_ok('tools/call', {'name': 'add', 'arguments': {'a': 1}}).status_is(200)
     t.json_is('/result/isError', True).json_is('/result/content/0/text', 'Invalid arguments:\n/b: Missing property.')
 
 with subtest('Protocol errors'):
-    request('tools/call', {'name': 'invalid_tool_name', 'arguments': {}}, id=3).status_is(200)
+    t.mcp_ok('tools/call', {'name': 'invalid_tool_name', 'arguments': {}}, id=3).status_is(200)
     t.json_is({'jsonrpc': '2.0', 'id': 3, 'error': {'code': -32602, 'message': 'Unknown tool: invalid_tool_name'}})
-    request('tools/call', {'name': 'add', 'arguments': [1, 2]}).status_is(200)
+    t.mcp_ok('tools/call', {'name': 'add', 'arguments': [1, 2]}).status_is(200)
     t.json_is('/error', {'code': -32602, 'message': 'Invalid arguments'})
-    request('tools/foo').status_is(404).json_is('/error', {'code': -32601, 'message': 'Method not found'})
-    request('initialize').status_is(404).json_is('/error/code', -32601)
+    t.mcp_ok('tools/foo').status_is(404).json_is('/error', {'code': -32601, 'message': 'Method not found'})
+    t.mcp_ok('initialize').status_is(404).json_is('/error/code', -32601)
     is_deeply_ok(exceptions, [], 'no exceptions')
-    request('tools/call', {'name': 'fails'}).status_is(500)
+    t.mcp_ok('tools/call', {'name': 'fails'}).status_is(500)
     t.json_is('/error', {'code': -32603, 'message': 'Internal error'}).content_unlike(re.compile(r'Secret'))
     is_ok(len(exceptions), 1, 'exception emitted')
     is_ok(len(logged), 1, 'exception logged')
@@ -246,16 +232,16 @@ with subtest('Protocol errors'):
     like_ok(str(logged[0][1]), re.compile(r'^Secret at '), 'right message')
 
 with subtest('Request metadata'):
-    request('tools/list', meta=None).status_is(400).json_is(
+    headers = {'MCP-Protocol-Version': '2026-07-28', 'Mcp-Method': 'tools/list'}
+    t.post_ok('/mcp', headers, json={'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}).status_is(400).json_is(
         '/error', {'code': -32602, 'message': 'Missing protocol version'}
     )
-    meta = {'io.modelcontextprotocol/clientCapabilities': {}}
-    request('tools/list', meta=meta).status_is(400).json_is('/error/code', -32602)
-    meta = {'io.modelcontextprotocol/protocolVersion': '2026-07-28'}
-    request('tools/list', meta=meta).status_is(400)
+    meta = {'io.modelcontextprotocol/protocolVersion': None, 'io.modelcontextprotocol/clientInfo': None}
+    t.mcp_ok('tools/list', meta=meta).status_is(400).json_is('/error/code', -32602)
+    meta = {'io.modelcontextprotocol/clientCapabilities': None, 'io.modelcontextprotocol/clientInfo': None}
+    t.mcp_ok('tools/list', meta=meta).status_is(400)
     t.json_is('/error', {'code': -32602, 'message': 'Missing client capabilities'})
-    meta = {**META, 'io.modelcontextprotocol/protocolVersion': '1900-01-01'}
-    request('tools/list', meta=meta, headers={'MCP-Protocol-Version': '1900-01-01'}).status_is(400)
+    t.mcp_ok('tools/list', id=1, meta={'io.modelcontextprotocol/protocolVersion': '1900-01-01'}).status_is(400)
     t.json_is(
         {
             'jsonrpc': '2.0',
@@ -267,58 +253,60 @@ with subtest('Request metadata'):
             },
         }
     )
-    meta = {'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientCapabilities': {}}
-    request('tools/call', {'name': 'whoami'}, meta=meta).status_is(200)
+    t.mcp_ok('tools/call', {'name': 'whoami'}, meta={'io.modelcontextprotocol/clientInfo': None}).status_is(200)
     t.json_is('/result/content/0/text', 'None 2026-07-28 None', 'without clientInfo')
 
 with subtest('Request headers'):
-    request('tools/list', headers={'MCP-Protocol-Version': None}).status_is(400)
+    t.mcp_ok('tools/list', headers={'MCP-Protocol-Version': None}).status_is(400)
     t.json_is('/error', {'code': -32020, 'message': 'Header mismatch: Missing MCP-Protocol-Version header'})
-    request('tools/list', headers={'MCP-Protocol-Version': '2025-11-25'}).status_is(400)
+    t.mcp_ok('tools/list', headers={'MCP-Protocol-Version': '2025-11-25'}).status_is(400)
     message = "Header mismatch: MCP-Protocol-Version header value '2025-11-25' does not match body value '2026-07-28'"
     t.json_is('/error', {'code': -32020, 'message': message})
-    request('tools/list', headers={'Mcp-Method': None}).status_is(400)
+    t.mcp_ok('tools/list', headers={'Mcp-Method': None}).status_is(400)
     t.json_is('/error/message', 'Header mismatch: Missing Mcp-Method header')
-    request('tools/list', headers={'Mcp-Method': 'tools/call'}).status_is(400)
+    t.mcp_ok('tools/list', headers={'Mcp-Method': 'tools/call'}).status_is(400)
     t.json_is(
         '/error/message', "Header mismatch: Mcp-Method header value 'tools/call' does not match body value 'tools/list'"
     )
-    request('tools/call', {'name': 'add', 'arguments': {'a': 1, 'b': 2}}, headers={'Mcp-Name': None}).status_is(400)
+    t.mcp_ok('tools/call', {'name': 'add', 'arguments': {'a': 1, 'b': 2}}, headers={'Mcp-Name': None}).status_is(400)
     t.json_is('/error/message', 'Header mismatch: Missing Mcp-Name header')
-    request('tools/call', {'name': 'add', 'arguments': {'a': 1, 'b': 2}}, headers={'Mcp-Name': 'foo'}).status_is(400)
+    t.mcp_ok('tools/call', {'name': 'add', 'arguments': {'a': 1, 'b': 2}}, headers={'Mcp-Name': 'foo'}).status_is(400)
     t.json_is(
         '/error',
         {'code': -32020, 'message': "Header mismatch: Mcp-Name header value 'foo' does not match body value 'add'"},
     )
     encoded = '=?base64?' + base64.b64encode(b'add').decode() + '?='
-    request('tools/call', {'name': 'add', 'arguments': {'a': 1, 'b': 2}}, headers={'Mcp-Name': encoded}).status_is(200)
+    t.mcp_ok('tools/call', {'name': 'add', 'arguments': {'a': 1, 'b': 2}}, headers={'Mcp-Name': encoded}).status_is(200)
     t.json_is('/result/structuredContent', 3)
-    request('tools/call', {'name': 'add', 'arguments': {}}, headers={'Mcp-Name': '=?base64?***?='}).status_is(400)
+    t.mcp_ok('tools/call', {'name': 'add', 'arguments': {}}, headers={'Mcp-Name': '=?base64?***?='}).status_is(400)
     t.json_is('/error/message', 'Header mismatch: Invalid Mcp-Name header')
 
 with subtest('Custom headers from tool parameters'):
     arguments = {'region': 'us-west1', 'query': 'SELECT * FROM users'}
-    request('tools/call', {'name': 'execute_sql', 'arguments': arguments}, headers={'Mcp-Param-Region': 'us-west1'})
+    t.mcp_ok('tools/call', {'name': 'execute_sql', 'arguments': arguments}, headers={'Mcp-Param-Region': 'us-west1'})
     t.status_is(200).json_is('/result/content/0/text', 'us-west1: SELECT * FROM users')
-    request('tools/call', {'name': 'execute_sql', 'arguments': arguments}).status_is(400)
+    t.mcp_ok('tools/call', {'name': 'execute_sql', 'arguments': arguments}, headers={'Mcp-Param-Region': None})
+    t.status_is(400)
     t.json_is('/error/message', 'Header mismatch: Missing Mcp-Param-Region header')
-    request('tools/call', {'name': 'execute_sql', 'arguments': arguments}, headers={'Mcp-Param-Region': 'eu'})
+    t.mcp_ok('tools/call', {'name': 'execute_sql', 'arguments': arguments}, headers={'Mcp-Param-Region': 'eu'})
     t.status_is(400).json_is(
         '/error/message', "Header mismatch: Mcp-Param-Region header value 'eu' does not match body value 'us-west1'"
     )
     greeting = {'region': 'Hello, 世界', 'query': 'x'}
     encoded = '=?base64?SGVsbG8sIOS4lueVjA==?='
-    request('tools/call', {'name': 'execute_sql', 'arguments': greeting}, headers={'Mcp-Param-Region': encoded})
+    t.mcp_ok('tools/call', {'name': 'execute_sql', 'arguments': greeting}, headers={'Mcp-Param-Region': encoded})
     t.status_is(200).json_is('/result/content/0/text', 'Hello, 世界: x')
     headers = {'Mcp-Param-Region': 'us-west1', 'Mcp-Param-Limit': '42.0', 'Mcp-Param-Dry': 'true'}
     arguments = {'region': 'us-west1', 'query': 'q', 'limit': 42, 'dry': True}
-    request('tools/call', {'name': 'execute_sql', 'arguments': arguments}, headers=headers).status_is(200)
-    request('tools/call', {'name': 'execute_sql', 'arguments': arguments}, headers={**headers, 'Mcp-Param-Dry': 'True'})
+    t.mcp_ok('tools/call', {'name': 'execute_sql', 'arguments': arguments}, headers=headers).status_is(200)
+    t.mcp_ok(
+        'tools/call', {'name': 'execute_sql', 'arguments': arguments}, headers={**headers, 'Mcp-Param-Dry': 'True'}
+    )
     t.status_is(400).json_is(
         '/error/message', "Header mismatch: Mcp-Param-Dry header value 'True' does not match body value 'true'"
     )
     arguments = {'region': 'us-west1', 'query': 'q'}
-    request('tools/call', {'name': 'execute_sql', 'arguments': arguments}, headers={**headers})
+    t.mcp_ok('tools/call', {'name': 'execute_sql', 'arguments': arguments}, headers={**headers})
     t.status_is(400).json_is('/error/message', 'Header mismatch: Unexpected Mcp-Param-Limit header')
 
 with subtest('Transport'):
