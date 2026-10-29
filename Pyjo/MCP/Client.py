@@ -335,7 +335,7 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
             for tool in client.list_tools()['tools']:
                 print(tool['name'], tool.get('description'))
         """
-        return self._tools(_result(self.send_request(self.build_request('tools/list'))))
+        return _result(self.send_request(self.build_request('tools/list')))
 
     def list_tools_p(self) -> Pyjo.Promise.object:
         """::
@@ -345,7 +345,27 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
         Same as :meth:`list_tools`, but returns a :mod:`Pyjo.Promise` of the
         result instead of blocking.
         """
-        return self.send_request_p(self.build_request('tools/list')).then(_result).then(self._tools)
+        return self.send_request_p(self.build_request('tools/list')).then(_result)
+
+    def read_response(self, tx: Pyjo.Transaction.HTTP.object, request: dict[str, Any]) -> dict[str, Any] | None:
+        """::
+
+            response = client.read_response(tx, request)
+
+        Read the response of a request from its transaction of
+        :meth:`build_tx`, once the transaction is done, as
+        :meth:`send_request` does: from JSON or from a stream of events, and
+        with the tools of a result of ``tools/list`` kept in :attr:`tools`,
+        without the ones of the event ``invalid_tool``. ::
+
+            request = client.build_request('tools/list')
+            tx = client.ua.start(client.build_tx(request))
+            print(client.read_response(tx, request)['result']['tools'])
+        """
+        response = self._read_response(tx, request)
+        if request.get('method') == 'tools/list' and isinstance(result := _object(response).get('result'), dict):
+            response = {**_object(response), 'result': self._tools(cast(dict[str, Any], result))}
+        return response
 
     def send_request(self, request: dict[str, Any]) -> dict[str, Any] | None:
         """::
@@ -361,9 +381,9 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
             response = client.send_request(client.build_request('tools/list'))
             print(response['result']['tools'])
         """
-        response = self._response(self.ua.start(self.build_tx(request)), request)
+        response = self.read_response(self.ua.start(self.build_tx(request)), request)
         if self._renegotiate(request, response):
-            response = self._response(self.ua.start(self.build_tx(request)), request)
+            response = self.read_response(self.ua.start(self.build_tx(request)), request)
         return response
 
     def send_request_p(self, request: dict[str, Any]) -> Pyjo.Promise.object:
@@ -376,7 +396,7 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
         """
 
         def response(tx: Pyjo.Transaction.HTTP.object) -> dict[str, Any] | None:
-            return self._response(tx, request)
+            return self.read_response(tx, request)
 
         def start() -> Pyjo.Promise.object:
             return self.ua.start_p(self.build_tx(request)).then(response)
@@ -426,7 +446,7 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
         _object(_object(request.get('params')).get('_meta'))[MCP.META_PROTOCOL_VERSION] = version
         return True
 
-    def _response(self, tx: Pyjo.Transaction.HTTP.object, request: dict[str, Any]) -> dict[str, Any] | None:
+    def _read_response(self, tx: Pyjo.Transaction.HTTP.object, request: dict[str, Any]) -> dict[str, Any] | None:
         # The response of a stream of events, which the parser of the content takes from the body
         res = tx.res
         if (response := self._responses.pop(tx, None)) is not None:
