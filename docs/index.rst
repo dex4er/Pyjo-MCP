@@ -11,5 +11,6 @@
     :maxdepth: 1
     :caption: API
 
+    api/Pyjo_MCP_Client
     api/Pyjo_MCP_Server
     api/Pyjo_MCP_Tool

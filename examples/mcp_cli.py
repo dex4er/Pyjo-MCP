@@ -30,15 +30,12 @@ import Pyjo.Exception
 import Pyjo.GetOpt
 import Pyjo.JSON
 import Pyjo.JSON.RPC
-import Pyjo.MCP
-import Pyjo.MCP.Tool
-import Pyjo.SSE
+import Pyjo.MCP.Client
 import Pyjo.UserAgent
 import Pyjo.YAML
 
 from Pyjo.Util import tablify
 
-import base64
 import json
 import os
 import re
@@ -48,89 +45,9 @@ import sys
 # The user agent of the requests, blocking, as a command waits for its result
 ua = Pyjo.UserAgent.new()
 
-META = {
-    Pyjo.MCP.META_PROTOCOL_VERSION: Pyjo.MCP.PROTOCOL_VERSION,
-    Pyjo.MCP.META_CLIENT_CAPABILITIES: {},
-    Pyjo.MCP.META_CLIENT_INFO: {'name': 'mcp_cli', 'version': '1.0.0'},
-}
-
 # The options of every command, which the options of the arguments of a tool do not take
 FORMATS = ('text', 'json')
 RESERVED = {'f', 'h', 'format', 'help'}
-
-
-class Client:
-    """A client of MCP over Streamable HTTP, made with the client of JSON-RPC."""
-
-    def __init__(self, url):
-        self.url = url
-        self.rpc = Pyjo.JSON.RPC.Client.new(self.send)
-        self.tools = {}
-        self.tool = None
-
-    def call(self, method, **params):
-        results, errors = [], []
-        self.rpc.call_p(method, **params, _meta=META).then(results.append, errors.append).wait()
-        if errors:
-            raise errors[0]
-        return results[0]
-
-    def list_tools(self):
-        # The tools whose x-mcp-header the specification allows, as a client excludes the others
-        for definition in self.call('tools/list')['tools']:
-            try:
-                tool = Pyjo.MCP.Tool.new(
-                    lambda **arguments: None, name=definition['name'], input_schema=definition['inputSchema']
-                )
-            except Pyjo.Exception.object as e:
-                print(f'Tool {definition["name"]} left out: {e.message}', file=sys.stderr)
-                continue
-            self.tools[kebab(definition['name'])] = (definition, tool)
-        return self.tools
-
-    def send(self, request):
-        # The headers of MCP, which mirror the body, as the server checks them
-        headers = {
-            'Accept': 'application/json, text/event-stream',
-            'MCP-Protocol-Version': Pyjo.MCP.PROTOCOL_VERSION,
-            'Mcp-Method': request['method'],
-        }
-        if request['method'] == 'tools/call':
-            params = request['params']
-            headers['Mcp-Name'] = header(params['name'])
-            for name, path, _ in self.tool.header_params if self.tool is not None else []:
-                if (value := value_at(params['arguments'], path)) is not None:
-                    headers[f'Mcp-Param-{name}'] = header(value)
-        tx = ua.build_tx('POST', self.url, headers, json=request)
-
-        # The events of a stream, which the user agent parses, or which stay in the body of a chunked one
-        events = []
-        tx.res.content.on('sse', lambda content, event: event and events.append(event))
-        tx = ua.start(tx)
-        response = tx.res.json()
-
-        # The message of the stream with the id of the request is the response, after the messages of the server
-        if (tx.res.headers.content_type or '').startswith('text/event-stream'):
-            buffer = bytearray(tx.res.body)
-            while (event := Pyjo.SSE.parse_event(buffer)) is not None:
-                events.append(event)
-            for event in events:
-                message = Pyjo.JSON.j(event['text'])
-                if (
-                    isinstance(message, dict)
-                    and message.get('id') == request['id']
-                    and message.keys() & {'result', 'error'}
-                ):
-                    response = message
-
-        if response is None:
-            # The text of the error, as a server of an older revision of MCP tells the revisions it supports in plain text
-            error = tx.error or {}
-            message = f'{self.url}: {error.get("code") or ""} {error.get("message", "No response")}'.strip()
-            if (tx.res.headers.content_type or '').startswith('text/plain') and (body := tx.res.text.strip()):
-                message += f': {body}'
-            raise Pyjo.Exception.new(message)
-        return response
 
 
 def describe(schema, required):
@@ -149,14 +66,6 @@ def describe(schema, required):
     elif schema.get('default') is not None:
         parts.append(f'defaults to {Pyjo.JSON.to_json(schema["default"])}')
     return ', '.join(parts)
-
-
-def header(value):
-    # A value of a header, plain ASCII, or Base64 of UTF-8 with the sentinel of MCP
-    text = value if isinstance(value, str) else Pyjo.JSON.to_json(value)
-    if re.fullmatch(r'[\x21-\x7e](?:[\x20-\x7e]*[\x21-\x7e])?', text) and not re.fullmatch(r'=\?base64\?.*\?=', text):
-        return text
-    return f'=?base64?{base64.b64encode(text.encode()).decode()}?='
 
 
 def kebab(name):
@@ -232,14 +141,6 @@ def text(value, schema, root, indent=''):
     return f'{indent}{plain(value)}\n'
 
 
-def value_at(arguments, path):
-    for key in path:
-        if not isinstance(arguments, dict):
-            return None
-        arguments = arguments.get(key)
-    return arguments
-
-
 def usage(definition, command):
     lines = [f'Usage: python mcp_cli.py {command} [OPTIONS]', '']
     if definition.get('description'):
@@ -267,17 +168,22 @@ def main(args=None):
     if not (opts := getopt.parse(head)) or head:
         return 2
     command, rest = (args[i], args[i + 1 :]) if i < len(args) else (None, [])
-    client = Client(opts.url)
+    client = Pyjo.MCP.Client.new(opts.url, ua=ua, name='mcp_cli')
+    client.on(
+        'invalid_tool',
+        lambda client, definition, e: print(f'Tool {definition.get("name")} left out: {e.message}', file=sys.stderr),
+    )
 
     try:
-        tools = client.list_tools()
+        # The tools by the names of their commands
+        tools = {kebab(definition['name']): definition for definition in client.list_tools()['tools']}
 
         # The commands, with the first sentence of the description of each tool
         if command is None or command == 'help':
             print(Pyjo.GetOpt.format_usage(__doc__.strip()))
             rows = [
                 [name, re.split(r'(?<=\.)\s', definition.get('description', ''), maxsplit=1)[0]]
-                for name, (definition, _) in tools.items()
+                for name, definition in tools.items()
             ]
             print('\nCommands:')
             print(''.join(f'  {line}\n' for line in tablify(rows).splitlines()), end='')
@@ -286,7 +192,7 @@ def main(args=None):
         if command not in tools:
             print(f'Unknown command "{command}", see python mcp_cli.py --help', file=sys.stderr)
             return 2
-        definition, client.tool = tools[command]
+        definition = tools[command]
 
         # The options of the arguments of the tool
         found = options(definition)
@@ -316,7 +222,7 @@ def main(args=None):
             print(f'Missing {", ".join(missing)}, see python mcp_cli.py {command} --help', file=sys.stderr)
             return 2
 
-        result = client.call('tools/call', name=definition['name'], arguments=arguments)
+        result = client.call_tool(definition['name'], arguments)
     except Pyjo.JSON.RPC.Error as e:
         print(
             f'{e.message} ({e.code})' + (f': {Pyjo.JSON.to_json(e.data)}' if e.data is not None else ''),
