@@ -1,4 +1,4 @@
-import Pyjo.Test.Pyjo
+import Pyjo.MCP.Test
 
 from Pyjo.File import curfile
 from Pyjo.Test import *
@@ -6,10 +6,9 @@ from Pyjo.Test import *
 
 # The application of examples/weather.py, which the test loads without starting a server, and whose requests of
 # Open-Meteo a mock of its routes answers, as the tests do not use the network
-t = Pyjo.Test.Pyjo.new(curfile().dirname().dirname().sibling('examples', 'weather.py'))
+t = Pyjo.MCP.Test.new(curfile().dirname().dirname().sibling('examples', 'weather.py'))
 t.app.log.level = 'fatal'
 
-META = {'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientCapabilities': {}}
 
 PLACES = {
     ('Warszawa', 'pl'): [
@@ -129,36 +128,33 @@ def start(ua, tx):
 
 
 def call(tool, /, **arguments):
-    headers = {'MCP-Protocol-Version': '2026-07-28', 'Mcp-Method': 'tools/call', 'Mcp-Name': tool}
-    params = {'name': tool, 'arguments': arguments, '_meta': META}
+    # A call of a tool, with the queries of the mock of its own
     queries.clear()
-    return t.post_ok('/mcp', headers, json={'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': params})
+    return t.call_ok(tool, **arguments)
 
 
 with subtest('Tools'):
-    headers = {'MCP-Protocol-Version': '2026-07-28', 'Mcp-Method': 'tools/list'}
-    message = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list', 'params': {'_meta': META}}
-    t.post_ok('/mcp', headers, json=message).status_is(200)
-    names = [tool['name'] for tool in t.tx.res.json('/result/tools')]
+    t.list_tools_ok().status_is(200)
+    names = [tool['name'] for tool in t.response['result']['tools']]
     is_deeply_ok(names, ['find_places', 'current_weather', 'forecast', 'hourly_forecast'], 'tools')
-    t.json_is('/result/tools/2/title', 'Weather forecast')
-    t.json_is('/result/tools/2/annotations', {'readOnlyHint': True, 'openWorldHint': True})
-    t.json_is(
-        '/result/tools/2/inputSchema/properties/days',
+    t.result_is('/tools/2/title', 'Weather forecast')
+    t.result_is('/tools/2/annotations', {'readOnlyHint': True, 'openWorldHint': True})
+    t.result_is(
+        '/tools/2/inputSchema/properties/days',
         {'type': 'integer', 'minimum': 1, 'maximum': 16, 'default': 3, 'description': 'How many days.'},
     )
-    t.json_is('/result/tools/2/inputSchema/required', ['place'])
-    t.json_is(
-        '/result/tools/2/outputSchema/properties/days/items/properties/precipitation',
+    t.result_is('/tools/2/inputSchema/required', ['place'])
+    t.result_is(
+        '/tools/2/outputSchema/properties/days/items/properties/precipitation',
         {'type': 'number', 'description': 'Precipitation in mm'},
     )
 
 with subtest('Places'):
-    call('find_places', name='Warsaw').status_is(200).json_is('/result/isError', False)
-    t.json_is('/result/structuredContent/0', WARSAW)
-    t.json_is('/result/structuredContent/1/region', 'Indiana')
-    t.json_is(
-        '/result/structuredContent/2',
+    call('find_places', name='Warsaw').status_is(200).is_error_is(False)
+    t.structured_content_is('/0', WARSAW)
+    t.structured_content_is('/1/region', 'Indiana')
+    t.result_is(
+        '/structuredContent/2',
         {
             'name': 'Warsaw Historic District',
             'country': '',
@@ -171,16 +167,16 @@ with subtest('Places'):
     )
     is_deeply_ok(queries, [{'name': 'Warsaw', 'count': '10', 'language': 'en', 'format': 'json'}], 'query')
     call('find_places', name='Warszawa', count=1, language='pl').status_is(200)
-    t.json_is('/result/structuredContent/0/country', 'Polska', 'most populous first')
+    t.structured_content_is('/0/country', 'Polska', 'most populous first')
     t.json_hasnt('/result/structuredContent/1')
-    call('find_places', name='Nowhere').status_is(200).json_is('/result/isError', True)
-    t.json_is('/result/content/0/text', 'No place named Nowhere')
-    call('find_places', name='Warsaw', count=21).status_is(200).json_is('/result/isError', True)
+    call('find_places', name='Nowhere').status_is(200).is_error_is(True)
+    t.text_content_is('No place named Nowhere')
+    call('find_places', name='Warsaw', count=21).status_is(200).is_error_is(True)
 
 with subtest('Current weather'):
-    call('current_weather', place='Warsaw').status_is(200).json_is('/result/isError', False)
-    t.json_is(
-        '/result/structuredContent',
+    call('current_weather', place='Warsaw').status_is(200).is_error_is(False)
+    t.result_is(
+        '/structuredContent',
         {
             'place': WARSAW,
             'time': '2026-10-24T20:30',
@@ -198,16 +194,16 @@ with subtest('Current weather'):
         'query of the forecast',
     )
     call('current_weather', place='Warsaw', country='US').status_is(200)
-    t.json_is('/result/structuredContent/place/region', 'Indiana')
+    t.structured_content_is('/place/region', 'Indiana')
     is_ok(queries[0]['countryCode'], 'US', 'country')
-    call('current_weather', place='Warsaw', country='DE').status_is(200).json_is('/result/isError', True)
-    t.json_is('/result/content/0/text', 'No place named Warsaw in DE')
+    call('current_weather', place='Warsaw', country='DE').status_is(200).is_error_is(True)
+    t.text_content_is('No place named Warsaw in DE')
 
 with subtest('Forecast'):
-    call('forecast', place='Warszawa', language='pl').status_is(200).json_is('/result/isError', False)
-    t.json_is('/result/structuredContent/place/name', 'Warszawa')
-    t.json_is(
-        '/result/structuredContent/days',
+    call('forecast', place='Warszawa', language='pl').status_is(200).is_error_is(False)
+    t.structured_content_is('/place/name', 'Warszawa')
+    t.result_is(
+        '/structuredContent/days',
         [
             {
                 'date': '2026-10-24',
@@ -233,18 +229,16 @@ with subtest('Forecast'):
         ],
     )
     is_ok(queries[1]['forecast_days'], '3', 'three days by default')
-    call('forecast', place='Warsaw', days=1).status_is(200).json_is(
-        '/result/structuredContent/days/0/date', '2026-10-24'
-    )
+    call('forecast', place='Warsaw', days=1).status_is(200).structured_content_is('/days/0/date', '2026-10-24')
     t.json_hasnt('/result/structuredContent/days/1')
-    call('forecast', place='Warsaw', days=17).status_is(200).json_is('/result/isError', True)
-    t.json_is('/result/content/0/text', 'Invalid arguments:\n/days: Greater than the maximum 16.')
+    call('forecast', place='Warsaw', days=17).status_is(200).is_error_is(True)
+    t.text_content_is('Invalid arguments:\n/days: Greater than the maximum 16.')
 
 with subtest('Hourly forecast'):
-    call('hourly_forecast', place='Warsaw', hours=3).status_is(200).json_is('/result/isError', False)
-    t.json_is('/result/structuredContent/place', WARSAW)
-    t.json_is(
-        '/result/structuredContent/hours/2',
+    call('hourly_forecast', place='Warsaw', hours=3).status_is(200).is_error_is(False)
+    t.structured_content_is('/place', WARSAW)
+    t.result_is(
+        '/structuredContent/hours/2',
         {
             'time': '2026-10-24T22:00',
             'conditions': 'Slight rain',
@@ -263,13 +257,13 @@ with subtest('Hourly forecast'):
     )
     call('hourly_forecast', place='Warsaw').status_is(200)
     is_ok(queries[1]['forecast_hours'], '24', 'a day by default')
-    call('hourly_forecast', place='Warsaw', hours=385).status_is(200).json_is('/result/isError', True)
-    t.json_is('/result/content/0/text', 'Invalid arguments:\n/hours: Greater than the maximum 384.')
+    call('hourly_forecast', place='Warsaw', hours=385).status_is(200).is_error_is(True)
+    t.text_content_is('Invalid arguments:\n/hours: Greater than the maximum 384.')
 
 with subtest('Errors of Open-Meteo'):
     PLACES[('Null Island', 'en')] = [{'name': 'Null Island', 'latitude': 0, 'longitude': 0}]
-    call('forecast', place='Null Island').status_is(200).json_is('/result/isError', True)
-    t.json_is('/result/content/0/text', 'Open-Meteo answered 400: Latitude must be in range of -90 to 90°.')
+    call('forecast', place='Null Island').status_is(200).is_error_is(True)
+    t.text_content_is('Open-Meteo answered 400: Latitude must be in range of -90 to 90°.')
 
 t.ua.close()
 

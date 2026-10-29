@@ -1,12 +1,10 @@
-import Pyjo.Test.Pyjo
+import Pyjo.MCP.Test
 
 from Pyjo.Test import *
 
 import contextlib
 import io
 
-
-META = {'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientCapabilities': {}}
 
 with subtest('Synopsis'):
     with contextlib.redirect_stdout(io.StringIO()) as stdout:
@@ -31,12 +29,9 @@ with subtest('Synopsis'):
 
     # Instead of app.start(), the application of Pyjoyment.Lite of the test
     app.log.level = 'fatal'
-    t = Pyjo.Test.Pyjo.new()
-    headers = {'MCP-Protocol-Version': '2026-07-28', 'Mcp-Method': 'tools/call', 'Mcp-Name': 'add'}
-    params = {'name': 'add', 'arguments': {'a': 1, 'b': 2}, '_meta': META}
-    t.post_ok('/mcp', headers, json={'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': params})
-    t.status_is(200).json_is('/result/structuredContent', 3)
-    t.post_ok('/mcp', {**headers, 'Host': 'evil.com'}, json={'jsonrpc': '2.0', 'id': 1}).status_is(421)
+    t = Pyjo.MCP.Test.new()
+    t.call_ok('add', a=1, b=2).status_is(200).structured_content_is(3)
+    t.list_tools_ok(headers={'Host': 'evil.com'}).status_is(421)
 
 with subtest('Constants'):
     is_deeply_ok(Pyjo.MCP.SUPPORTED_VERSIONS, ('2026-07-28',), 'SUPPORTED_VERSIONS')

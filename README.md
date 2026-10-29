@@ -108,6 +108,22 @@ client = Client('http://127.0.0.1:3000/mcp')
 print(client.call_tool('divide', {'a': 7, 'b': 2})['structuredContent'])
 ```
 
+`Pyjo.MCP.Test` tests a server with the requests of the client, without
+starting it:
+
+```python
+import Pyjo.MCP.Test
+
+from Pyjo.File import curfile
+from Pyjo.Test import *
+
+t = Pyjo.MCP.Test.new(curfile().sibling('calculator.py'))
+t.call_ok('divide', a=7, b=2).status_is(200).structured_content_is(3.5)
+t.call_ok('divide', a=1, b=0).is_error_is(True).text_content_is('Division by zero')
+
+done_testing()
+```
+
 ## Documentation
 
 The tutorial, which makes servers of MCP step by step, and the API of the package
@@ -116,9 +132,9 @@ are on [Read the Docs](https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/lat
 ## Status
 
 A server of the tools of MCP over Streamable HTTP and stdio, with
-`server/discover`, `tools/list` and `tools/call`, and a client of them over
-Streamable HTTP. Prompts, resources, the subscriptions and the streams of SSE
-of the server are to come.
+`server/discover`, `tools/list` and `tools/call`, a client of them over
+Streamable HTTP, and assertions of tests with its requests. Prompts,
+resources, the subscriptions and the streams of SSE of the server are to come.
 
 ## License
 

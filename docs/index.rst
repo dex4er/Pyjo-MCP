@@ -13,4 +13,5 @@
 
     api/Pyjo_MCP_Client
     api/Pyjo_MCP_Server
+    api/Pyjo_MCP_Test
     api/Pyjo_MCP_Tool

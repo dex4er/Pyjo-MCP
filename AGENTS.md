@@ -68,9 +68,9 @@ as those of the Perl client, and each has a form `_p` with a promise, as
 and the options of the multi round-trip requests come with them in the server.
 
 A client knows the `x-mcp-header` of a tool only from its definition, so the
-headers `Mcp-Param-{name}` of a call come from `tools` of the last
-`list_tools`, and a call before it sends none, which the server rejects for a
-tool with such a header. A tool whose `x-mcp-header` the specification does
+headers `Mcp-Param-{name}` of a call come from `tools`, which the last
+response of `tools/list` that `read_response` reads gives, and a call before
+it sends none, which the server rejects for a tool with such a header. A tool whose `x-mcp-header` the specification does
 not allow is left out of the result of `list_tools`, as the specification
 requires of a client, with the event `invalid_tool`, which tells why.
 
@@ -78,11 +78,32 @@ requires of a client, with the event `invalid_tool`, which tells why.
 `Pyjo.Content` parses the events of a stream with a `Content-Length` or one
 that the connection ends, and takes them from the body, so the response of
 JSON-RPC among them is kept by the transaction, in a weak dictionary, until
-the response is read. A chunked stream, as a server of a framework that streams
-its response writes, is not parsed by `Pyjo.Content`: its events stay in the body, which the client
-parses at the end. Every other message of the stream is the event
-`notification`. A test that sends the transaction of `build_tx` with
-`Pyjo.Test.Pyjo` sends what the client sends.
+the response is read. A chunked stream, as a server of a framework that
+streams its response writes, is not parsed by `Pyjo.Content`: its events stay
+in the body, which the client parses at the end. Every other message of the
+stream is the event `notification`.
+
+## The Tests
+
+`Pyjo.MCP.Test` is a subclass of `Pyjo.Test.Pyjo`, in the package of the
+distribution, as the namespace `Pyjo.Test` of Pyjoyment is not open, and the
+revision and the headers of MCP change faster than Pyjoyment. A request is the
+transaction of `build_tx` of its `client`, which `request_ok` sends, so that a
+test sends what the client sends, and `read_response` of the client reads the
+response of JSON-RPC into `response`, from JSON or from a stream of events,
+which the assertions test, as `json_is` of `Pyjo.Test.Pyjo` reads only a body
+of JSON. `mcp_ok` changes the `id`, the `_meta` and the headers of a request
+after the client builds it, as a test of a server sends what a client must
+not.
+
+The name of a tool is positional only in `call_ok`, and its arguments are
+keyword arguments, so that no argument of a tool clashes with a parameter of
+the method; the headers and the `_meta` of a call go through `mcp_ok`, or
+`headers` of the client for all the requests. A private method of the class
+has a name that `Pyjo.Test.Pyjo` does not have, as a subclass would replace
+the one that its own assertions call, as `_text` of `text_is`. The default
+description of an assertion names what it checks, not the value, which can
+have a new line that would break the line of TAP.
 
 ## The Tools
 
