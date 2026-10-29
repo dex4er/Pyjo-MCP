@@ -57,6 +57,33 @@ time. And `dispatch_p` of the server rejects the batches and the `id` of
 controller over stdio, so it carries the log of the application, which gets the
 errors of the server that the controller logs over HTTP.
 
+## The Client
+
+`Pyjo.MCP.Client` follows `MCP::Client` of the Perl `MCP`: it builds the
+requests itself, with the `_meta` of the client over the one of the
+parameters, and not with the client of `Pyjo.JSON.RPC`, as an id of its own
+and the headers made from the body belong to each request. Its methods block,
+as those of the Perl client, and each has a form `_p` with a promise, as
+`Pyjo.UserAgent` has them. The prompts, the resources, `subscriptions/listen`
+and the options of the multi round-trip requests come with them in the server.
+
+A client knows the `x-mcp-header` of a tool only from its definition, so the
+headers `Mcp-Param-{name}` of a call come from `tools` of the last
+`list_tools`, and a call before it sends none, which the server rejects for a
+tool with such a header. A tool whose `x-mcp-header` the specification does
+not allow is left out of the result of `list_tools`, as the specification
+requires of a client, with the event `invalid_tool`, which tells why.
+
+`build_tx` subscribes the event `sse` of the content of the response, as
+`Pyjo.Content` parses the events of a stream with a `Content-Length` or one
+that the connection ends, and takes them from the body, so the response of
+JSON-RPC among them is kept by the transaction, in a weak dictionary, until
+the response is read. A chunked stream, as a server of a framework that streams
+its response writes, is not parsed by `Pyjo.Content`: its events stay in the body, which the client
+parses at the end. Every other message of the stream is the event
+`notification`. A test that sends the transaction of `build_tx` with
+`Pyjo.Test.Pyjo` sends what the client sends.
+
 ## The Tools
 
 A tool is a function, whose `inputSchema` and `outputSchema` are those of

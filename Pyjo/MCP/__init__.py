@@ -30,13 +30,14 @@ specification, whose core is stateless: every request carries its version and
 the capabilities of its client in its ``_meta``, without a session.
 
 :mod:`Pyjo.MCP.Server` is the server, whose tools are :mod:`Pyjo.MCP.Tool`
-objects, and the messages are those of :mod:`Pyjo.JSON.RPC`.
+objects, :mod:`Pyjo.MCP.Client` is the client, and the messages are those of
+:mod:`Pyjo.JSON.RPC`.
 
 See also
 --------
 
-:mod:`Pyjo.MCP.Server`, :mod:`Pyjo.MCP.Tool`, :mod:`Pyjoyment`,
-https://github.com/dex4er/Pyjoyment.
+:mod:`Pyjo.MCP.Server`, :mod:`Pyjo.MCP.Tool`, :mod:`Pyjo.MCP.Client`,
+:mod:`Pyjoyment`, https://github.com/dex4er/Pyjoyment.
 
 It is inspired by the distribution `MCP <https://metacpan.org/pod/MCP>`_ of
 CPAN, built on Mojolicious.

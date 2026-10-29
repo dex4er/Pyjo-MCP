@@ -98,6 +98,16 @@ uv run python examples/mcp_cli.py forecast --place Kraków --language pl --days 
 uv run python examples/mcp_cli.py hourly-forecast -p Warsaw -H 6 -f json
 ```
 
+It is made with `Pyjo.MCP.Client`, a client of MCP over Streamable HTTP, which
+sends the `_meta` and the headers that every request carries:
+
+```python
+from Pyjo.MCP.Client import Client
+
+client = Client('http://127.0.0.1:3000/mcp')
+print(client.call_tool('divide', {'a': 7, 'b': 2})['structuredContent'])
+```
+
 ## Documentation
 
 The tutorial, which makes servers of MCP step by step, and the API of the package
@@ -106,8 +116,9 @@ are on [Read the Docs](https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/lat
 ## Status
 
 A server of the tools of MCP over Streamable HTTP and stdio, with
-`server/discover`, `tools/list` and `tools/call`. Prompts, resources, the
-subscriptions, the streams of SSE and the client are to come.
+`server/discover`, `tools/list` and `tools/call`, and a client of them over
+Streamable HTTP. Prompts, resources, the subscriptions and the streams of SSE
+of the server are to come.
 
 ## License
 
