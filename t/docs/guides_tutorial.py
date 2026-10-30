@@ -195,6 +195,30 @@ with subtest('Prompts and resources'):
     t.get_prompt_ok('review').status_is(200).error_message_is('Missing required argument: code')
     t.ua.close()
 
+with subtest('Resource templates'):
+    t = tutorial('project')
+    t.discover_ok().status_is(200).result_is('/capabilities', {'resources': {}})
+    t.list_resource_templates_ok().status_is(200)
+    t.result_is(
+        '/resourceTemplates',
+        [
+            {
+                'uriTemplate': 'file:///project/{+path}',
+                'name': 'project_file',
+                'description': 'A file of the project, by its path in the project.',
+                'mimeType': 'text/x-python',
+            }
+        ],
+    )
+    t.read_resource_ok('file:///project/hello.py').status_is(200)
+    t.text_content_is(EXAMPLES.child('hello.py').slurp('UTF-8'))
+    t.result_is('/contents/0/uri', 'file:///project/hello.py')
+    t.read_resource_ok('file:///project/missing.py').status_is(200)
+    t.error_is({'code': -32602, 'message': 'Resource not found', 'data': {'uri': 'file:///project/missing.py'}})
+    t.read_resource_ok('file:///project/../tutorial.rst').status_is(200).error_message_is('Resource not found')
+    t.read_resource_ok('file:///project/%2Fetc%2Fpasswd').status_is(200).error_message_is('Resource not found')
+    t.ua.close()
+
 with subtest('Subscriptions'):
     t = tutorial('notes')
     t.discover_ok().status_is(200)

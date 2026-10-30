@@ -259,6 +259,19 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
         """
         return self.mcp_ok('resources/list', headers=headers, meta=meta)
 
+    def list_resource_templates_ok(
+        self, *, headers: dict[str, Any] | None = None, meta: dict[str, Any] | None = None
+    ) -> Self:
+        """::
+
+            t = t.list_resource_templates_ok()
+
+        List the resource templates with ``resources/templates/list``, and
+        check for transport errors, with the headers and the ``_meta`` of
+        :meth:`mcp_ok`.
+        """
+        return self.mcp_ok('resources/templates/list', headers=headers, meta=meta)
+
     def list_tools_ok(self, *, headers: dict[str, Any] | None = None, meta: dict[str, Any] | None = None) -> Self:
         """::
 
@@ -461,6 +474,44 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
         p, data, desc = _args(args)
         got = Pyjo.JSON.Pointer.new(self._listed('resources', 'uri', uri)).get(p)
         return self.test('is_deeply', got, data, desc or f'exact match for resource "{uri}" "{p}"')
+
+    def resource_template_exists(self, uri: str, desc: str | None = None) -> Self:
+        """::
+
+            t = t.resource_template_exists('notes://{number}')
+            t = t.resource_template_exists('notes://{number}', 'has notes')
+
+        Check if the result of ``resources/templates/list`` has a resource
+        template of the URI Template.
+        """
+        found = self._listed('resourceTemplates', 'uriTemplate', uri) is not None
+        return self.test('ok', found, desc or f'has resource template "{uri}"')
+
+    def resource_template_exists_not(self, uri: str, desc: str | None = None) -> Self:
+        """::
+
+            t = t.resource_template_exists_not('file:///{+path}')
+            t = t.resource_template_exists_not('file:///{+path}', 'no files')
+
+        Opposite of :meth:`resource_template_exists`.
+        """
+        found = self._listed('resourceTemplates', 'uriTemplate', uri) is not None
+        return self.test('ok', not found, desc or f'has no resource template "{uri}"')
+
+    def resource_template_is(self, uri: str, *args: Any) -> Self:
+        """::
+
+            t = t.resource_template_is('notes://{number}', {'uriTemplate': 'notes://{number}', 'name': 'note'})
+            t = t.resource_template_is('notes://{number}', '/mimeType', 'text/plain')
+            t = t.resource_template_is('notes://{number}', '/name', 'note', 'right name')
+
+        Check the value of the definition of a resource template of the result
+        of ``resources/templates/list``, at a JSON Pointer of
+        :mod:`Pyjo.JSON.Pointer`, which defaults to the whole definition.
+        """
+        p, data, desc = _args(args)
+        got = Pyjo.JSON.Pointer.new(self._listed('resourceTemplates', 'uriTemplate', uri)).get(p)
+        return self.test('is_deeply', got, data, desc or f'exact match for resource template "{uri}" "{p}"')
 
     def response_is(self, *args: Any) -> Self:
         """::

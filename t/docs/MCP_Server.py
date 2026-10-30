@@ -245,6 +245,8 @@ with subtest('Attributes'):
     is_deeply_ok(prompts, [], 'prompts')
     resources = server.resources
     is_deeply_ok(resources, [], 'resources')
+    templates = server.resource_templates
+    is_deeply_ok(templates, [], 'resource templates')
     boolean = server.subscribe
     is_ok(boolean, False, 'subscribe')
     server.subscribe = True
@@ -360,12 +362,28 @@ with subtest('resource'):
     cb = server.resource('file:///project/README.md', lambda: '# Project', mime_type='text/markdown')
     is_ok(cb(), '# Project', 'cb')
     cb = server.resource('config://app', lambda context: ..., context=True)
+    cb = server.resource('notes://{number}', lambda number: ...)
 
     @server.resource('file:///project/README.md', mime_type='text/markdown')
     def readme() -> str:
         """The documentation of the project."""
         return '# Project'
 
+    notes = ['Buy milk']
+
+    @server.resource('notes://{number}')
+    def note(number: str) -> str:
+        """A note, by its number."""
+        return notes[int(number) - 1]
+
+    is_deeply_ok(
+        [(template.uri, template.name) for template in server.resource_templates],
+        [('notes://{number}', '<lambda>'), ('notes://{number}', 'note')],
+        'resource templates',
+    )
+    results = []
+    server.resource_templates[1].resource('notes://1').read_p().then(results.append).wait()
+    is_ok(results[0]['contents'][0]['text'], 'Buy milk', 'note')
     is_deeply_ok(
         [(resource.uri, resource.name) for resource in server.resources],
         [

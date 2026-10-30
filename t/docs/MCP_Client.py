@@ -56,6 +56,12 @@ def readme() -> str:
     return '# Project'
 
 
+@server.resource('notes://{number}')
+def note(number: str) -> str:
+    """A note, by its number."""
+    return f'Note {number}'
+
+
 app = Pyjoyment.new()
 app.log.level = 'fatal'
 app.routes.any('/mcp').to(cb=server.to_action())
@@ -293,6 +299,21 @@ with subtest('list_resources_p'):
     results = []
     promise.then(results.append).wait()
     is_ok(len(results[0]['resources']), 1, 'result')
+
+with subtest('list_resource_templates'):
+    result = client.list_resource_templates()
+    is_ok(len(result['resourceTemplates']), 1, 'result')
+
+    with contextlib.redirect_stdout(io.StringIO()) as stdout:
+        for template in client.list_resource_templates()['resourceTemplates']:
+            print(template['uriTemplate'], template.get('mimeType'))
+    is_ok(stdout.getvalue(), 'notes://{number} text/plain\n', 'printed')
+
+with subtest('list_resource_templates_p'):
+    promise = client.list_resource_templates_p()
+    results = []
+    promise.then(results.append).wait()
+    is_ok(len(results[0]['resourceTemplates']), 1, 'result')
 
 with subtest('list_tools'):
     result = client.list_tools()

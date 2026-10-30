@@ -14,8 +14,9 @@ import urllib.request
 
 
 # The client of the MCP SDK, of the dependency group "sdk", calls the server of examples/calculator.py, and the ones of
-# the progress, of the prompts and resources and of the subscriptions of the tutorial, which run in a process of their
-# own, as the client runs the event loop of asyncio in the process of the test, over Streamable HTTP and over stdio
+# the progress, of the prompts and resources, of the resource templates and of the subscriptions of the tutorial, which
+# run in a process of their own, as the client runs the event loop of asyncio in the process of the test, over
+# Streamable HTTP and over stdio
 
 if not importlib.util.find_spec('mcp'):
     plan(skip_all='the MCP SDK is required, as of the dependency group "sdk"')
@@ -27,6 +28,7 @@ EXAMPLE = curfile().dirname().dirname().sibling('examples', 'calculator.py').to_
 PROGRESS = curfile().dirname().dirname().sibling('docs', 'guides', 'tutorial', 'progress.py').to_str()
 REVIEW = curfile().dirname().dirname().sibling('docs', 'guides', 'tutorial', 'review.py').to_str()
 NOTES = curfile().dirname().dirname().sibling('docs', 'guides', 'tutorial', 'notes.py').to_str()
+PROJECT = curfile().dirname().dirname().sibling('docs', 'guides', 'tutorial', 'project.py').to_str()
 
 
 def port():
@@ -83,6 +85,31 @@ async def library(server):
         except Exception as e:
             missing = str(e)
         return prompts, prompt, resources, style, limits, missing
+
+
+async def templates(server):
+    # The resource templates, whose URIs the client reads
+    asyncio.get_running_loop().slow_callback_duration = 5
+    async with Client(server) as mcp:
+        listed = (await mcp.list_resource_templates()).resource_templates
+        hello = await mcp.read_resource('file:///project/hello.py')
+        try:
+            await mcp.read_resource('file:///project/../tutorial.rst')
+            outside = None
+        except Exception as e:
+            outside = str(e)
+        return listed, hello, outside
+
+
+def check_templates(listed, hello, outside):
+    is_deeply_ok(
+        [(template.uri_template, template.name, template.mime_type) for template in listed],
+        [('file:///project/{+path}', 'project_file', 'text/x-python')],
+        'resources/templates/list',
+    )
+    is_ok(str(hello.contents[0].uri), 'file:///project/hello.py', 'URI of the resource')
+    like_ok(hello.contents[0].text, r'^from Pyjo.MCP.Server import Server', 'resources/read')
+    is_ok(outside, 'Resource not found', 'outside of the directory')
 
 
 async def subscriptions(server):
@@ -195,6 +222,10 @@ with subtest('Prompts and resources over Streamable HTTP'):
     with daemon(REVIEW) as url:
         check_library(*asyncio.run(library(url)))
 
+with subtest('Resource templates over Streamable HTTP'):
+    with daemon(PROJECT) as url:
+        check_templates(*asyncio.run(templates(url)))
+
 with subtest('Subscriptions over Streamable HTTP'):
     with daemon(NOTES) as url:
         check_subscriptions(*asyncio.run(subscriptions(url)))
@@ -210,6 +241,11 @@ with subtest('Notifications over stdio'):
 
 with subtest('Prompts and resources over stdio'):
     check_library(*asyncio.run(library(StdioServerParameters(command=sys.executable, args=[REVIEW, 'stdio'], env=env))))
+
+with subtest('Resource templates over stdio'):
+    check_templates(
+        *asyncio.run(templates(StdioServerParameters(command=sys.executable, args=[PROJECT, 'stdio'], env=env)))
+    )
 
 with subtest('Subscriptions over stdio'):
     check_subscriptions(
