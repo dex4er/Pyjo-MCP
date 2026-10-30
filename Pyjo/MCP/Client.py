@@ -331,6 +331,35 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
         """
         return self.send_request_p(self._call_tool(name, arguments, input_responses, request_state)).then(_result)
 
+    def complete(
+        self, ref: dict[str, Any], argument: str, value: str, arguments: dict[str, str] | None = None
+    ) -> dict[str, Any]:
+        """::
+
+            result = client.complete({'type': 'ref/prompt', 'name': 'review'}, 'language', 'Py')
+            result = client.complete({'type': 'ref/resource', 'uri': 'repo://{owner}/{repo}'}, 'repo', 'Py', {'owner': 'dex4er'})
+
+        Complete the value of an argument of a prompt, or of a variable of a
+        resource template, with ``completion/complete``, with the values of the
+        other arguments, and return its result, or raise the
+        :class:`Pyjo.JSON.RPC.Error` of the response. ::
+
+            print(client.complete({'type': 'ref/prompt', 'name': 'review'}, 'language', 'P')['completion']['values'])
+        """
+        return _result(self.send_request(self._complete(ref, argument, value, arguments)))
+
+    def complete_p(
+        self, ref: dict[str, Any], argument: str, value: str, arguments: dict[str, str] | None = None
+    ) -> Pyjo.Promise.object:
+        """::
+
+            promise = client.complete_p({'type': 'ref/prompt', 'name': 'review'}, 'language', 'Py')
+
+        Same as :meth:`complete`, but returns a :mod:`Pyjo.Promise` of the
+        result instead of blocking.
+        """
+        return self.send_request_p(self._complete(ref, argument, value, arguments)).then(_result)
+
     def discover(self) -> dict[str, Any]:
         """::
 
@@ -627,6 +656,14 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
         self, name: str, arguments: dict[str, Any] | None, responses: dict[str, Any] | None, state: str | None
     ) -> dict[str, Any]:
         return self.build_request('tools/call', _input({'name': name, 'arguments': arguments or {}}, responses, state))
+
+    def _complete(
+        self, ref: dict[str, Any], argument: str, value: str, arguments: dict[str, str] | None
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {'ref': ref, 'argument': {'name': argument, 'value': value}}
+        if arguments is not None:
+            params['context'] = {'arguments': arguments}
+        return self.build_request('completion/complete', params)
 
     def _get_prompt(
         self, name: str, arguments: dict[str, Any] | None, responses: dict[str, Any] | None, state: str | None

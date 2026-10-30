@@ -162,6 +162,24 @@ with subtest('call_ok'):
     t.list_tools_ok().call_ok('execute_sql', region='eu', query='SELECT 1').status_is(200)
     is_ok(t.tx.req.headers.header('Mcp-Param-Region'), 'eu', 'header of the argument')
 
+with subtest('complete_ok'):
+    # A server of its own, with completions
+    completing = Pyjo.MCP.Server.new()
+    completing.prompt('review', lambda code, language: code, complete={'language': ['Perl', 'Python']})
+    completing.resource('notes://{number}', lambda number: '', name='note', complete={'number': ['1', '2']})
+    completing_app = Pyjoyment.new()
+    completing_app.routes.any('/mcp').to(cb=completing.to_action())
+    main, t = t, Pyjo.MCP.Test.new(completing_app)
+    t = t.complete_ok({'type': 'ref/prompt', 'name': 'review'}, 'language', 'Py')
+    t.result_is('/completion/values', ['Python'])
+    t = t.complete_ok({'type': 'ref/resource', 'uri': 'notes://{number}'}, 'number', '1')
+    t.result_is('/completion/values', ['1'])
+
+    t.complete_ok({'type': 'ref/prompt', 'name': 'review'}, 'language', 'P')
+    t.result_is('/completion/values', ['Perl', 'Python'])
+    t.ua.close()
+    t = main
+
 with subtest('discover_ok'):
     t = t.discover_ok()
     t.status_is(200)

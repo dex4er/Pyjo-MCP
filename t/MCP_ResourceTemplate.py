@@ -127,6 +127,11 @@ with subtest('Safe'):
     is_deeply_ok(template.match('file:///project//etc/passwd'), {'path': '/etc/passwd'}, 'absolute path')
     is_ok(read(template.resource('file:///project/a%00b'))['contents'][0]['text'], 'a\0b', 'NUL')
 
+with subtest('Completions'):
+    template = Pyjo.MCP.ResourceTemplate.new('notes://{number}', lambda number: number, complete={'number': ['1', '2']})
+    is_deeply_ok(template.complete, {'number': ['1', '2']}, 'completions')
+    is_deeply_ok(Pyjo.MCP.ResourceTemplate.new('notes://{number}', lambda number: number).complete, {}, 'none')
+
 with subtest('Context'):
     template = Pyjo.MCP.ResourceTemplate.new('users://{id}', lambda context, id: f'{id} of {context}', context=True)
     is_ok(read(template.resource('users://1'), 'context')['contents'][0]['text'], '1 of context', 'context')

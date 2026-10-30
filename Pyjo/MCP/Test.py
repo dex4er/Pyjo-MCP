@@ -155,6 +155,35 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
         """
         return self.mcp_ok('tools/call', {'name': tool, 'arguments': {**(arguments or {}), **kwargs}})
 
+    def complete_ok(
+        self,
+        ref: dict[str, Any],
+        argument: str,
+        value: str,
+        arguments: dict[str, str] | None = None,
+        /,
+        *,
+        headers: dict[str, Any] | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> Self:
+        """::
+
+            t = t.complete_ok({'type': 'ref/prompt', 'name': 'review'}, 'language', 'Py')
+            t = t.complete_ok({'type': 'ref/resource', 'uri': 'notes://{number}'}, 'number', '1')
+
+        Complete the value of an argument of a prompt, or of a variable of a
+        resource template, with ``completion/complete``, with the values of the
+        other arguments, and check for transport errors, with the headers and
+        the ``_meta`` of :meth:`mcp_ok`. ::
+
+            t.complete_ok({'type': 'ref/prompt', 'name': 'review'}, 'language', 'P')
+            t.result_is('/completion/values', ['Perl', 'Python'])
+        """
+        params: dict[str, Any] = {'ref': ref, 'argument': {'name': argument, 'value': value}}
+        if arguments is not None:
+            params['context'] = {'arguments': arguments}
+        return self.mcp_ok('completion/complete', params, headers=headers, meta=meta)
+
     def discover_ok(self, *, headers: dict[str, Any] | None = None, meta: dict[str, Any] | None = None) -> Self:
         """::
 

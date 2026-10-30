@@ -44,12 +44,13 @@ Pyjo.MCP.Server - Server of MCP
 revision :data:`Pyjo.MCP.PROTOCOL_VERSION` of the specification, with the
 methods ``server/discover``, ``tools/list`` and ``tools/call``, whose tools are
 :mod:`Pyjo.MCP.Tool` objects, ``prompts/list`` and ``prompts/get``, whose
-prompts are :mod:`Pyjo.MCP.Prompt` objects, and ``resources/list``,
+prompts are :mod:`Pyjo.MCP.Prompt` objects, ``resources/list``,
 ``resources/templates/list`` and ``resources/read``, whose resources are
-:mod:`Pyjo.MCP.Resource` and :mod:`Pyjo.MCP.ResourceTemplate` objects. The
-protocol is stateless: each request carries its revision and the capabilities
-of its client in its ``_meta``, which the server checks, and a result carries
-the name and the version of the server in its own ``_meta``.
+:mod:`Pyjo.MCP.Resource` and :mod:`Pyjo.MCP.ResourceTemplate` objects, and
+``completion/complete``, which completes the values of their arguments and
+variables. The protocol is stateless: each request carries its revision and
+the capabilities of its client in its ``_meta``, which the server checks, and
+a result carries the name and the version of the server in its own ``_meta``.
 
 A client that wants to know of the changes of the server opens a subscription
 with ``subscriptions/listen``, a request that stays in progress, whose stream
@@ -114,6 +115,7 @@ import binascii
 import builtins
 import hashlib
 import hmac
+import inspect
 import re
 import threading
 import time
@@ -705,7 +707,7 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         rpc.method('resources/templates/list', self._resources_templates_list, context=True)
         rpc.method('resources/read', self._resources_read, context=True)
         rpc.method('subscriptions/listen', self._listen, context=True)
-        # TODO: completion/complete, of the arguments of the prompts and the variables of the resource templates
+        rpc.method('completion/complete', self._complete, context=True)
 
         # The subscriptions of each thread, as a notification is written by the event loop of the thread of its stream
         self._local = threading.local()
@@ -1079,6 +1081,50 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
 
         return hook
 
+    def _complete(self, context: Context, /, **params: Any) -> Pyjo.Promise.object:
+        self._meta(context, params)
+        ref, argument = _object(params.get('ref')), _object(params.get('argument'))
+        name, value = argument.get('name'), argument.get('value')
+        if not isinstance(name, str) or not isinstance(value, str):
+            raise Pyjo.JSON.RPC.Error.new(Pyjo.JSON.RPC.INVALID_PARAMS, 'Invalid argument')
+        arguments = _object(_object(params.get('context')).get('arguments'))
+
+        # The prompt of its name, or the resource template of its URI Template
+        source: Prompt.object | ResourceTemplate.object | None
+        if ref.get('type') == 'ref/prompt':
+            if (source := next((prompt for prompt in self.prompts if prompt.name == ref.get('name')), None)) is None:
+                raise Pyjo.JSON.RPC.Error.new(Pyjo.JSON.RPC.INVALID_PARAMS, f'Unknown prompt: {ref.get("name")}')
+        elif ref.get('type') == 'ref/resource':
+            source = next((template for template in self.resource_templates if template.uri == ref.get('uri')), None)
+            if source is None:
+                message = f'Unknown resource template: {ref.get("uri")}'
+                raise Pyjo.JSON.RPC.Error.new(Pyjo.JSON.RPC.INVALID_PARAMS, message)
+        else:
+            raise Pyjo.JSON.RPC.Error.new(Pyjo.JSON.RPC.INVALID_PARAMS, 'Invalid reference')
+
+        # The values of a list that start with what the user has typed, in any case, or the values of a function
+        completer = source.complete.get(name, [])
+        if isinstance(completer, list | tuple):
+            prefix = value.casefold()
+            promise = Pyjo.Promise.resolve(
+                [str(v) for v in cast(list[Any], completer) if str(v).casefold().startswith(prefix)]
+            )
+        else:
+            try:
+                values = completer(*([context] if source.context else []), value, arguments)
+            except Exception as e:
+                return Pyjo.Promise.reject(e)
+            if inspect.iscoroutine(values):
+                values = Pyjo.Promise.new(values)
+            promise = values if isinstance(values, Pyjo.Promise.object) else Pyjo.Promise.resolve(values)
+
+        def result(values: Any = None) -> dict[str, Any]:
+            values = [str(v) for v in cast(list[Any], values or [])]
+            completion = {'values': values[:100], 'total': len(values), 'hasMore': len(values) > 100}
+            return self._result({'completion': completion})
+
+        return promise.then(result)
+
     def _cursor(self, params: dict[str, Any]) -> None:
         # A list of one page, whose cursor no request has
         if params.get('cursor') is not None:
@@ -1094,6 +1140,8 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
             capabilities['prompts'] = {**listed}
         if self.resources or self.resource_templates:
             capabilities['resources'] = {**listed, **({'subscribe': True} if self.subscribe else {})}
+        if any(source.complete for source in [*self.prompts, *self.resource_templates]):
+            capabilities['completions'] = {}
         result: dict[str, Any] = {'supportedVersions': list(MCP.SUPPORTED_VERSIONS), 'capabilities': capabilities}
         if self.instructions is not None:
             result['instructions'] = self.instructions

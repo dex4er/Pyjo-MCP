@@ -1,6 +1,8 @@
 from Pyjo.MCP.Server import Server
 from Pyjoyment.Lite import *
 
+from typing import Literal
+
 
 server = Server(name='reviewer', version='1.0.0')
 
@@ -25,7 +27,7 @@ def limits() -> dict:
 
 
 @server.prompt(title='Code review')
-def review(code: str, focus: str = 'bugs') -> list:
+def review(code: str, focus: Literal['bugs', 'style'] = 'bugs') -> list:
     """Review a piece of code against the style guide.
 
     :param code: The code to review.

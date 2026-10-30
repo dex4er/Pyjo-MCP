@@ -280,6 +280,24 @@ with subtest('Client'):
     t.call_ok('whoami').text_content_is("ExampleClient {'elicitation': {}}")
     t.ua.close()
 
+with subtest('Completion'):
+    completing = Pyjo.MCP.Server.new(name='ExampleServer')
+    completing.prompt('review', lambda code, language: code, complete={'language': ['Perl', 'Python']})
+    t = Pyjo.MCP.Test.new(application(completing.to_action()))
+    t.complete_ok({'type': 'ref/prompt', 'name': 'review'}, 'language', 'P').status_is(200)
+    t.result_is('/completion/values', ['Perl', 'Python'])
+    is_ok(t.response['result']['resultType'], 'complete', 'result')
+    t.complete_ok({'type': 'ref/prompt', 'name': 'review'}, 'language', 'Py', {'code': 'x'})
+    t.result_is('/completion/values', ['Python'], 'with arguments')
+    t.complete_ok(
+        {'type': 'ref/prompt', 'name': 'review'},
+        'language',
+        'P',
+        meta={'io.modelcontextprotocol/protocolVersion': None},
+    )
+    t.status_is(400)
+    t.ua.close()
+
 with subtest('Input'):
     asking = Pyjo.MCP.Server.new(name='ExampleServer')
     asking.secrets = ['passw0rd']

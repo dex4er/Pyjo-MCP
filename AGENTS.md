@@ -17,8 +17,9 @@ the MIT license.
 
 `Pyjo.MCP.Server` is made on `Pyjo.JSON.RPC` of Pyjoyment: its methods,
 `server/discover`, `tools/list`, `tools/call`, `prompts/list`, `prompts/get`,
-`resources/list`, `resources/templates/list`, `resources/read` and
-`subscriptions/listen`, are methods of a dispatcher of JSON-RPC that get the `Context` of the request, and `dispatch_p` takes a
+`resources/list`, `resources/templates/list`, `resources/read`,
+`subscriptions/listen` and `completion/complete`, are methods of a dispatcher
+of JSON-RPC that get the `Context` of the request, and `dispatch_p` takes a
 message of any transport. A batch and a request with the `id` of `null` are
 invalid requests, as MCP has neither. Each method checks the `_meta` of its
 request first, as the protocol is stateless: there is no `initialize`, and
@@ -176,8 +177,23 @@ reads files is the common case, so a value with a segment `..`, an absolute
 path of Unix or of Windows or NUL has no resource by default, also when it
 is percent-encoded, as the match decodes it; `safe=False` turns that off. A
 URI without a value that the function requires has no resource either, as
-the client made it, not the server. `completion/complete`, which completes
-the values of the variables, is left for later.
+the client made it, not the server.
+
+`completion/complete` completes the value of an argument of a prompt or of a
+variable of a resource template, from `complete` of the prompt or of the
+template: a list, which the server filters by the prefix that the user has
+typed, in any case, as a short list of names is the common case, or a
+function, whose values the server takes as they are, as only the function
+knows how to search what it has, and which gets the values of the other
+arguments, the `context.arguments` of the request, as the owner of a
+repository narrows its names. The values of a parameter of a prompt with
+`Literal` or `Enum` complete by default, from the `enum` of the schema of
+`Pyjo.JSON.Schema`. The result has at most 100 values, as the specification
+allows, with `total` and `hasMore`, and `server/discover` declares
+`completions` only for a server that has some. The request has no header
+`Mcp-Name`, as the specification names it only for `tools/call`,
+`prompts/get` and `resources/read`, and its parameter `context` is not the
+`Context` of the method, which the dispatcher passes by its position.
 
 ## The Subscriptions
 

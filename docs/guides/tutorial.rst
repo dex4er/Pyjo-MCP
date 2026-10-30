@@ -170,7 +170,9 @@ question. A resource returns a string, which is its text, :class:`bytes`,
 which are its ``blob`` in Base64, or another value, whose JSON is the text, as
 the limits here. Like a tool, both can return a :mod:`Pyjo.Promise` or be
 coroutines, and get the :class:`~Pyjo.MCP.Server.Context` of the request with
-``context``.
+``context``. The values of an argument with ``Literal``, as ``focus`` here, or
+with an ``Enum``, are the completions that ``completion/complete`` gives a
+client while the user types it.
 
 Claude Code lists the prompts as commands, as ``/mcp__reviewer__review``,
 which ask for the arguments, and the resources as mentions, as
@@ -195,6 +197,12 @@ directory, has no resource, unless the template is made with ``safe=False``. A
 function that finds nothing raises the error of JSON-RPC itself. A resource
 that the server lists comes before a template that matches its URI too, and
 the templates are tried in their order.
+
+The option ``complete`` gives the completions of the values of the variables,
+or of the arguments of a prompt: a list of the values, which the server filters
+by what the user has typed, or a function, as here, that gets it and the values
+of the other variables, and returns the values that fit, of which the server
+gives at most 100.
 
 Subscriptions
 -------------

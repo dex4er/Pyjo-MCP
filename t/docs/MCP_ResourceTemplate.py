@@ -43,11 +43,18 @@ with subtest('new'):
     is_ok(template.mime_type, 'text/markdown', 'mime_type')
     template = Pyjo.MCP.ResourceTemplate.new('users://{id}', lambda context, id: ..., context=True)
     ok(template.context, 'context')
+    template = Pyjo.MCP.ResourceTemplate.new('notes://{number}', note, complete={'number': ['1', '2']})
+    is_deeply_ok(template.complete, {'number': ['1', '2']}, 'complete')
 
 with subtest('Attributes'):
     template = Pyjo.MCP.ResourceTemplate.new('notes://{number}', note)
     cb = template.cb
     is_ok(cb, note, 'cb')
+    completions = template.complete
+    is_deeply_ok(completions, {}, 'completions')
+    notes = ['Buy milk', 'Write']
+    template.complete['number'] = lambda value, arguments: [str(n) for n in range(1, len(notes) + 1)]
+    is_deeply_ok(template.complete['number']('', {}), ['1', '2'], 'function')
     boolean = template.context
     is_ok(boolean, False, 'boolean')
     description = template.description
