@@ -1,3 +1,4 @@
+import Pyjo.Exception
 import Pyjo.JSON
 import Pyjo.MCP.Client
 import Pyjo.MCP.Server
@@ -277,6 +278,34 @@ with subtest('Client'):
     t.client.name = 'ExampleClient'
     t.client.capabilities = {'elicitation': {}}
     t.call_ok('whoami').text_content_is("ExampleClient {'elicitation': {}}")
+    t.ua.close()
+
+with subtest('Input'):
+    asking = Pyjo.MCP.Server.new(name='ExampleServer')
+    asking.secrets = ['passw0rd']
+
+    @asking.tool(context=True)
+    def delete(context, path: str) -> str:
+        context.state['path'] = path
+        if context.elicit('confirm', f'Delete {path}?')['action'] != 'accept':
+            return 'Cancelled'
+        return f'Deleted {context.state["path"]}'
+
+    t = Pyjo.MCP.Test.new(application(asking.to_action()))
+    try:
+        t.input_ok({})
+    except Pyjo.Exception.object as e:
+        is_ok(e.message, 'No request to send again', 'no request')
+    else:
+        fail_ok('no request')
+    t.client.capabilities = {'elicitation': {}}
+    t.call_ok('delete', path='a.txt').status_is(200).result_is('/resultType', 'input_required')
+    t.result_is('/inputRequests/confirm/params/message', 'Delete a.txt?')
+    t.input_ok({'confirm': {'action': 'accept'}}).status_is(200).text_content_is('Deleted a.txt')
+    t.call_ok('delete', path='a.txt').input_ok({'confirm': {'action': 'decline'}}).text_content_is('Cancelled')
+    t.call_ok('delete', path='a.txt').input_ok().result_is('/resultType', 'input_required', 'no responses')
+    t.input_ok({'confirm': {'action': 'accept'}}, meta={'io.modelcontextprotocol/clientCapabilities': {}})
+    t.text_content_is('Deleted a.txt', 'meta of the request')
     t.ua.close()
 
 with subtest('Response in a stream of events'):

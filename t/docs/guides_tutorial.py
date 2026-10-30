@@ -244,6 +244,35 @@ with subtest('Subscriptions'):
     t.sse_finished_ok()
     t.ua.close()
 
+with subtest('Input'):
+    t = tutorial('confirm')
+    t.client.capabilities = {'elicitation': {}, 'sampling': {}}
+    t.call_ok('delete', name='todo.txt').status_is(200).result_is('/resultType', 'input_required')
+    t.result_is(
+        '/inputRequests/confirm',
+        {
+            'method': 'elicitation/create',
+            'params': {
+                'mode': 'form',
+                'message': 'Delete todo.txt?',
+                'requestedSchema': {'type': 'object', 'properties': {}},
+            },
+        },
+    )
+    t.input_ok({'confirm': {'action': 'decline'}}).result_is('/resultType', 'complete').text_content_is('Kept todo.txt')
+    t.call_ok('delete', name='todo.txt').input_ok({'confirm': {'action': 'accept'}}).text_content_is('Deleted todo.txt')
+    t.call_ok('delete', name='todo.txt').is_error_is(True).text_content_is('No such file: todo.txt')
+    t.call_ok('summarize', name='notes.txt').result_is('/inputRequests/summary/method', 'sampling/createMessage')
+    t.result_is(
+        '/inputRequests/summary/params/messages/0/content/text', 'Summarize in a few words:\nBuy milk, eggs and bread.'
+    )
+    t.result_is('/inputRequests/summary/params/maxTokens', 50)
+    sampled = {'role': 'assistant', 'content': {'type': 'text', 'text': 'Groceries.'}, 'model': 'test'}
+    t.input_ok({'summary': sampled}).text_content_is('Groceries.')
+    t.client.capabilities = {}
+    t.call_ok('delete', name='notes.txt').error_code_is(-32021)
+    t.ua.close()
+
 with subtest('Security'):
     os.environ['MCP_TOKEN'] = 'sesame'
     try:

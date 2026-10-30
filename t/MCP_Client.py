@@ -271,6 +271,41 @@ with subtest('Resources'):
     is_ok(c.read_resource('notes://1')['contents'][0]['text'], 'Note 1', 'resource of a template')
     is_deeply_ok(e.data, {'uri': 'file:///nonexistent.txt'}, 'data of the error')
 
+with subtest('Input'):
+    # A server of its own, whose tool, prompt and resource ask for input
+    asking = Pyjo.MCP.Server.new(name='ExampleServer')
+    asking.secrets = ['passw0rd']
+    asking.tool('confirm', lambda context, path: context.elicit('ok', f'Delete {path}?')['action'], context=True)
+    asking.prompt('haiku', lambda context: context.sample('haiku', 'A haiku.', 50)['content']['text'], context=True)
+    asking.resource('roots://all', lambda context: str(len(context.list_roots()['roots'])), context=True)
+    c = client(application(asking.to_action()))
+    c.capabilities = {'elicitation': {}, 'sampling': {}, 'roots': {}}
+    result = c.call_tool('confirm', {'path': 'a.txt'})
+    is_ok(result['resultType'], 'input_required', 'input required')
+    is_ok(result['inputRequests']['ok']['params']['message'], 'Delete a.txt?', 'request of the input')
+    result = c.call_tool('confirm', {'path': 'a.txt'}, input_responses={'ok': {'action': 'accept'}})
+    is_ok(result['content'][0]['text'], 'accept', 'input responses')
+    result = c.get_prompt('haiku')
+    sampled = {'role': 'assistant', 'content': {'type': 'text', 'text': 'Drops'}, 'model': 'test'}
+    result = c.get_prompt('haiku', input_responses={'haiku': sampled}, request_state=result.get('requestState'))
+    is_ok(result['messages'][0]['content']['text'], 'Drops', 'prompt')
+    is_ok(c.read_resource('roots://all')['inputRequests']['roots']['method'], 'roots/list', 'resource')
+    result = c.read_resource('roots://all', input_responses={'roots': {'roots': []}})
+    is_ok(result['contents'][0]['text'], '0', 'resource with input')
+    e = failure(lambda: c.call_tool('confirm', {'path': 'a.txt'}, request_state='nonsense'))
+    is_deeply_ok(error(e), (-32602, 'Invalid or expired requestState'), 'request state')
+    results = []
+    c.call_tool_p('confirm', {'path': 'a.txt'}, input_responses={'ok': {'action': 'decline'}}).then(
+        lambda result: results.append(result['content'][0]['text'])
+    ).wait()
+    c.get_prompt_p('haiku', input_responses={'haiku': sampled}).then(
+        lambda result: results.append(result['messages'][0]['content']['text'])
+    ).wait()
+    c.read_resource_p('roots://all', input_responses={'roots': {'roots': [{'uri': 'file:///a'}]}}).then(
+        lambda result: results.append(result['contents'][0]['text'])
+    ).wait()
+    is_deeply_ok(results, ['decline', 'Drops', '1'], 'promises')
+
 with subtest('Subscriptions'):
     c = client()
     messages = []

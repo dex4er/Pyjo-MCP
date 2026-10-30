@@ -57,6 +57,15 @@ gets the notifications of :meth:`~Pyjo_MCP_Server.notify_list_changed` and
 :meth:`~Pyjo_MCP_Server.notify_resource_updated` that the client asks for,
 until the client cancels it or the server stops.
 
+A tool, a prompt or a resource that needs input of the client, of the user,
+of its language model or of its roots, asks for it with
+:meth:`Context.elicit`, :meth:`Context.sample`, :meth:`Context.list_roots` or
+:meth:`Context.input`, and the server answers with the result
+``input_required`` of the requests, whose responses come with the same request
+again, in the rounds of a multi round-trip request, with the responses of the
+rounds before in its ``requestState``, which
+:attr:`~Pyjo_MCP_Server.secrets` sign.
+
 The requests come over Streamable HTTP, the transport of
 :meth:`~Pyjo_MCP_Server.to_action`, an action of a route of :mod:`Pyjoyment`,
 which answers each request with a JSON object, or with a stream of events when
@@ -103,8 +112,11 @@ from . import Prompt, Resource, ResourceTemplate, Tool
 import base64
 import binascii
 import builtins
+import hashlib
+import hmac
 import re
 import threading
+import time
 
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Self, cast, overload
@@ -121,6 +133,34 @@ _NAMES = {'tools/call': 'name', 'resources/read': 'uri', 'prompts/get': 'name'}
 # A value of a header that is encoded with Base64, and one that is plain
 _BASE64 = re.compile(r'=\?base64\?(.*)\?=', re.S)
 _PLAIN = re.compile(r'[\t\x20-\x7e]*')
+
+
+class InputRequired(Exception):
+    """
+    The exception of :meth:`Context.input` of a request whose input the client
+    has not given yet, which the server answers with the result
+    ``input_required`` of its requests. A function lets it go, as an
+    ``except Exception`` that catches it would keep the server from asking. ::
+
+        try:
+            answer = context.elicit('confirm', 'Delete the file?')
+        except InputRequired:
+            raise
+        except Exception:
+            ...
+    """
+
+    def __init__(self, requests: dict[str, dict[str, Any]]) -> None:
+        super().__init__(f'Input required: {", ".join(requests)}')
+
+        self.requests = requests
+        """::
+
+            requests = e.requests
+
+        The requests of the input, by their keys, as ``inputRequests`` gives
+        them.
+        """
 
 
 class Context(Pyjo.EventEmitter.object):
@@ -156,16 +196,27 @@ class Context(Pyjo.EventEmitter.object):
         controller: 'Pyjoyment.Controller.object | None' = None,
         client: Pyjo.JSON.RPC.Client | None = None,
         log: Pyjo.Log.object | None = None,
+        app: Any = None,
     ) -> None:
         """::
 
             context = Pyjo.MCP.Server.Context.new()
             context = Pyjo.MCP.Server.Context.new(c)
-            context = Pyjo.MCP.Server.Context.new(client=client, log=app.log)
+            context = Pyjo.MCP.Server.Context.new(client=client, log=app.log, app=app)
 
         Construct a new :class:`Context` object.
         """
         super().__init__()
+
+        self.app = controller.app if app is None and controller is not None else app
+        """::
+
+            app = context.app
+
+        The application of :mod:`Pyjoyment` of the request, the one of the
+        controller or of the transport stdio, whose ``secrets`` sign the state
+        of the request by default, or ``None``.
+        """
 
         self.client = client
         """::
@@ -212,6 +263,17 @@ class Context(Pyjo.EventEmitter.object):
         subscription name, or ``None`` for a notification.
         """
 
+        self.input_responses: dict[str, Any] = {}
+        """::
+
+            responses = context.input_responses
+
+        The responses of the client to the requests of :meth:`input`, by their
+        keys, of all the rounds of the request so far: the ``inputResponses``
+        of the request, and those of the rounds before it, which its
+        ``requestState`` keeps.
+        """
+
         self.log = log
         """::
 
@@ -254,6 +316,19 @@ class Context(Pyjo.EventEmitter.object):
             version = context.protocol_version
 
         The revision of the specification of the request.
+        """
+
+        self.state: dict[str, Any] = {}
+        """::
+
+            state = context.state
+            context.state['total'] = 42
+
+        Values of JSON that a function keeps for the next round of the request,
+        as the result of a long computation before it asks for input, which
+        the signed ``requestState`` of the result ``input_required`` gives the
+        client, and the client gives back. The client can read them, but not
+        change them.
         """
 
         self.status: int | None = None
@@ -303,6 +378,74 @@ class Context(Pyjo.EventEmitter.object):
             self.emit('cancelled')
         return self
 
+    def elicit(self, key: str, message: str, schema: dict[str, Any] | None = None) -> dict[str, Any]:
+        """::
+
+            result = context.elicit('confirm', 'Delete the file?')
+            result = context.elicit('name', 'Who are you?', {'type': 'object', 'properties': {'name': {'type': 'string'}}})
+
+        Ask the user for input with a form, ``elicitation/create`` of the key,
+        as :meth:`input` does, and return the result of the client, whose
+        ``action`` is ``accept``, ``decline`` or ``cancel``, with the
+        ``content`` of the form when the user accepts. The schema of the form
+        is an object without properties by default, a confirmation. ::
+
+            if context.elicit('confirm', f'Delete {path}?')['action'] != 'accept':
+                return 'Cancelled'
+        """
+        params = {'mode': 'form', 'message': message, 'requestedSchema': schema or {'type': 'object', 'properties': {}}}
+        return self.input({key: {'method': 'elicitation/create', 'params': params}})[key]
+
+    def input(self, requests: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        """::
+
+            responses = context.input({'roots': {'method': 'roots/list'}})
+
+        Return the responses of the client to the requests, by their keys, or
+        raise :class:`InputRequired` of the requests that it has not answered
+        yet, which the server answers with the result ``input_required``, so
+        that the client asks the user or its language model, and sends the
+        request again with their responses. The function then runs again from
+        its beginning, and gets them, so what it does before it asks for
+        input has to be safe to repeat. A key names the same request in every
+        round. A request of a capability that the client does not declare,
+        ``elicitation``, ``sampling`` or ``roots``, raises the error
+        ``-32021`` of JSON-RPC. ::
+
+            # Two questions at once
+            responses = context.input(
+                {
+                    'name': {'method': 'elicitation/create', 'params': {'message': 'Name?', 'requestedSchema': schema}},
+                    'roots': {'method': 'roots/list'},
+                }
+            )
+        """
+        missing = {key: request for key, request in requests.items() if key not in self.input_responses}
+        if not missing:
+            return {key: self.input_responses[key] for key in requests}
+        for request in missing.values():
+            capability = _CAPABILITIES.get(str(request.get('method')), '')
+            if capability and capability not in self.client_capabilities:
+                data: dict[str, Any] = {'requiredCapabilities': {capability: {}}}
+                message = f'Missing required client capability: {capability}'
+                raise Pyjo.JSON.RPC.Error.new(MCP.MISSING_REQUIRED_CLIENT_CAPABILITY, message, data)
+        raise InputRequired(missing)
+
+    def list_roots(self, key: str = 'roots') -> dict[str, Any]:
+        """::
+
+            result = context.list_roots()
+            result = context.list_roots('workspace')
+
+        Ask the client for its roots, ``roots/list`` of the key, ``roots`` by
+        default, as :meth:`input` does, and return the result of the client,
+        whose ``roots`` are the directories and the files that the server may
+        work on. ::
+
+            paths = [root['uri'] for root in context.list_roots()['roots']]
+        """
+        return self.input({key: {'method': 'roots/list'}})[key]
+
     def notify(self, method: str, params: dict[str, Any] | None = None) -> bool:
         """::
 
@@ -350,6 +493,30 @@ class Context(Pyjo.EventEmitter.object):
         if message is not None:
             params['message'] = message
         return self.notify('notifications/progress', params)
+
+    def sample(self, key: str, messages: str | list[dict[str, Any]], max_tokens: int, **params: Any) -> dict[str, Any]:
+        """::
+
+            result = context.sample('summary', 'Summarize the file.', 100)
+            result = context.sample('summary', messages, 100, systemPrompt='You are terse.')
+
+        Ask the language model of the client for a message,
+        ``sampling/createMessage`` of the key, as :meth:`input` does, with the
+        messages of the conversation, a string for one message of the user,
+        the maximum number of tokens, and the other parameters of the request
+        by their names in the specification, and return the result of the
+        client, with the ``role``, the ``content`` and the ``model`` of the
+        message. ::
+
+            text = context.sample('haiku', f'Write a haiku about {topic}.', 50)['content']['text']
+        """
+        if isinstance(messages, str):
+            messages = [{'role': 'user', 'content': {'type': 'text', 'text': messages}}]
+        request = {
+            'method': 'sampling/createMessage',
+            'params': {'messages': messages, 'maxTokens': max_tokens, **params},
+        }
+        return self.input({key: request})[key]
 
 
 class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
@@ -473,6 +640,30 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         The :mod:`Pyjo.MCP.ResourceTemplate` objects of the server, in the order
         of ``resources/templates/list``, in which ``resources/read`` tries
         them for a URI that no resource has.
+        """
+
+        self.secrets: list[str] | None = None
+        """::
+
+            secrets = server.secrets
+            server.secrets = ['passw0rd']
+
+        The secrets that sign the ``requestState`` of a request that needs
+        input, the first one the new states and all of them the ones that
+        come back, so that a secret can be rotated, or ``None`` for the
+        ``secrets`` of the application of the request, as its signed cookies
+        have them.
+        """
+
+        self.state_timeout = 600
+        """::
+
+            timeout = server.state_timeout
+            server.state_timeout = 3600
+
+        How many seconds the ``requestState`` of a request that needs input is
+        valid, ``600`` by default, after which the client has to send the
+        request again from its first round.
         """
 
         self.subscribe = False
@@ -666,22 +857,22 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
             return decorator
         return self._resource(uri, cb, options)
 
-    def serve(self, peer: Any, log: Pyjo.Log.object | None = None) -> Pyjo.JSON.RPC.Client:
+    def serve(self, peer: Any, log: Pyjo.Log.object | None = None, app: Any = None) -> Pyjo.JSON.RPC.Client:
         """::
 
             client = server.serve(messages)
-            client = server.serve(messages, log=app.log)
+            client = server.serve(messages, log=app.log, app=app)
 
         Serve the methods to a peer on a stream of messages in both directions,
         as a :mod:`Pyjo.IOLoop.Messages` object, and return the
         :class:`Pyjo.JSON.RPC.Client` of the peer, as
         :meth:`~Pyjo.JSON.RPC.Pyjo_JSON_RPC.serve` does, with the rules of
         :meth:`dispatch_p` and a :class:`Context` of its own for each request,
-        whose ``client`` is the one of the peer and whose ``log`` gets the
-        errors of the server. ``notifications/cancelled`` of the peer cancels
-        the :class:`Context` of its request, which gets no response then, and
-        the end of the input of the peer ends its subscriptions gracefully,
-        with their responses. ::
+        whose ``client`` is the one of the peer, whose ``log`` gets the errors
+        of the server, and whose ``app`` is the application.
+        ``notifications/cancelled`` of the peer cancels the :class:`Context` of
+        its request, which gets no response then, and the end of the input of
+        the peer ends its subscriptions gracefully, with their responses. ::
 
             # The transport stdio, a message on each line of the standard input and output
             messages = Pyjo.IOLoop.Messages.new(Pyjo.IOLoop.Stdio.new())
@@ -698,7 +889,7 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
                 return None
 
             # The notifications of a request go to the peer, on the same stream
-            context = Context(client=client, log=log)
+            context = Context(client=client, log=log, app=app)
             context.stream = lambda notification: client.notify(notification['method'], **notification['params'])
             if (id := _id(message_.get('id'))) is not None:
                 contexts[id] = context
@@ -881,7 +1072,7 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
 
         def hook(server: Any, app: Any) -> None:
             def stream(server: Pyjo.Server.Stdio.object, stream: Any) -> None:
-                self.serve(Pyjo.IOLoop.Messages.new(stream), log=app.log)
+                self.serve(Pyjo.IOLoop.Messages.new(stream), log=app.log, app=app)
 
             if isinstance(server, Pyjo.Server.Stdio.object):
                 server.on('stream', stream)
@@ -960,6 +1151,39 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
                     body = value if isinstance(value, str) else Pyjo.JSON.to_json(value)
                     return f"Mcp-Param-{name} header value '{decoded}' does not match body value '{body}'"
         return None
+
+    def _input(
+        self, context: Context, method: str, target: Any, arguments: Any, params: dict[str, Any]
+    ) -> Callable[[Any], Any]:
+        # The input of the rounds before, from the requestState of the request, with its inputResponses, and the
+        # handler of a rejection that answers InputRequired with the result input_required and the state of the next
+        # round, which is bound to the method, the name or the URI, and the arguments, of the request
+        binding = [method, target, hashlib.sha256(Pyjo.JSON.encode_json(arguments, sort_keys=True)).hexdigest()]
+        responses = params.get('inputResponses')
+        if responses is not None and not isinstance(responses, dict):
+            raise Pyjo.JSON.RPC.Error.new(Pyjo.JSON.RPC.INVALID_PARAMS, 'Invalid input responses')
+        if (token := params.get('requestState')) is not None:
+            if (state := self._verify(context, token, binding)) is None:
+                raise Pyjo.JSON.RPC.Error.new(Pyjo.JSON.RPC.INVALID_PARAMS, 'Invalid or expired requestState')
+            context.input_responses = _object(state.get('responses'))
+            context.state = _object(state.get('state'))
+        context.input_responses.update(cast(dict[str, Any], responses or {}))
+
+        def input_required(e: Any = None) -> Any:
+            if not isinstance(e, InputRequired):
+                raise e
+            result: dict[str, Any] = {'resultType': 'input_required', 'inputRequests': e.requests}
+            if context.input_responses or context.state:
+                state = {
+                    'binding': binding,
+                    'expires': int(time.time()) + self.state_timeout,
+                    'responses': context.input_responses,
+                    'state': context.state,
+                }
+                result['requestState'] = self._sign(context, state)
+            return self._result(result)
+
+        return input_required
 
     def _listen(self, context: Context, **params: Any) -> Pyjo.Promise.object:
         self._meta(context, params)
@@ -1067,7 +1291,8 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         arguments = params.get('arguments', {})
         if not isinstance(arguments, dict):
             raise Pyjo.JSON.RPC.Error.new(Pyjo.JSON.RPC.INVALID_PARAMS, 'Invalid arguments')
-        return prompt.get_p(cast(dict[str, Any], arguments), context).then(self._result)
+        input_required = self._input(context, 'prompts/get', name, arguments, params)
+        return prompt.get_p(cast(dict[str, Any], arguments), context).then(self._result, input_required)
 
     def _prompts_list(self, context: Context, **params: Any) -> dict[str, Any]:
         self._meta(context, params)
@@ -1098,13 +1323,27 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         def result(value: dict[str, Any]) -> dict[str, Any]:
             return self._result(value, cacheable=True)
 
-        return resource.read_p(context).then(result)
+        input_required = self._input(context, 'resources/read', uri, {}, params)
+        return resource.read_p(context).then(result, input_required)
 
     def _resources_templates_list(self, context: Context, **params: Any) -> dict[str, Any]:
         self._meta(context, params)
         self._cursor(params)
         templates = [template.__json__() for template in self.resource_templates]
         return self._result({'resourceTemplates': templates}, cacheable=True)
+
+    def _secrets(self, context: Context) -> list[str]:
+        # The secrets of the server, or of the application of the request
+        if self.secrets:
+            return self.secrets
+        return list(getattr(context.app, 'secrets', None) or [])
+
+    def _sign(self, context: Context, state: dict[str, Any]) -> str:
+        # The state, signed with the first secret
+        if not (secrets := self._secrets(context)):
+            raise Pyjo.Exception.new('No secrets to sign the state of a request')
+        data = base64.urlsafe_b64encode(Pyjo.JSON.encode_json(state)).decode().rstrip('=')
+        return f'{data}.{_signature(secrets[0], data)}'
 
     @property
     def _subscriptions(self) -> list['_Subscription']:
@@ -1124,12 +1363,29 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         arguments = params.get('arguments', {})
         if not isinstance(arguments, dict):
             raise Pyjo.JSON.RPC.Error.new(Pyjo.JSON.RPC.INVALID_PARAMS, 'Invalid arguments')
-        return tool.call_p(cast(dict[str, Any], arguments), context).then(self._result)
+        input_required = self._input(context, 'tools/call', name, arguments, params)
+        return tool.call_p(cast(dict[str, Any], arguments), context).then(self._result, input_required)
 
     def _tools_list(self, context: Context, **params: Any) -> dict[str, Any]:
         self._meta(context, params)
         self._cursor(params)
         return self._result({'tools': [tool.__json__() for tool in self.tools]}, cacheable=True)
+
+    def _verify(self, context: Context, token: Any, binding: list[Any]) -> dict[str, Any] | None:
+        # The state of a token signed with any of the secrets, which has not expired and is bound to the request, or None
+        if not isinstance(token, str) or '.' not in token:
+            return None
+        data, signature = token.rsplit('.', 1)
+        if not any(hmac.compare_digest(_signature(secret, data), signature) for secret in self._secrets(context)):
+            return None
+        try:
+            state = _object(Pyjo.JSON.decode_json(base64.urlsafe_b64decode(data + '=' * (-len(data) % 4))))
+        except (ValueError, binascii.Error):
+            return None
+        expires = state.get('expires')
+        if state.get('binding') != binding or not isinstance(expires, int) or expires < time.time():
+            return None
+        return state
 
 
 class _Subscription:
@@ -1147,6 +1403,9 @@ class _Subscription:
 
 # The filters of the notifications of the changes of the lists of a subscription
 _LIST_CHANGED = {'tools': 'toolsListChanged', 'prompts': 'promptsListChanged', 'resources': 'resourcesListChanged'}
+
+# The capabilities of the client that the requests of the input need
+_CAPABILITIES = {'elicitation/create': 'elicitation', 'sampling/createMessage': 'sampling', 'roots/list': 'roots'}
 
 # The levels of the log messages of a client, as the ones of syslog
 _LEVELS = {
@@ -1180,6 +1439,12 @@ def _error(id: Any, code: int, message: str) -> dict[str, Any]:
 def _id(id: Any) -> str | int | None:
     # An id of JSON-RPC, a string or a number, or None for another value
     return id if isinstance(id, str | int) and not isinstance(id, bool) else None
+
+
+def _signature(secret: str, data: str) -> str:
+    # The HMAC-SHA256 of the data with the secret, in Base64 for URLs without padding
+    digest = hmac.new(secret.encode(), data.encode(), hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(digest).decode().rstrip('=')
 
 
 def _object(value: Anything) -> dict[str, Any]:

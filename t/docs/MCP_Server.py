@@ -1,4 +1,6 @@
 import Pyjo.IOLoop
+import Pyjo.JSON.RPC
+import Pyjo.MCP.Server
 import Pyjo.MCP.Test
 import Pyjoyment
 
@@ -85,6 +87,31 @@ with subtest('Synopsis'):
     t.discover_ok(headers={'Origin': 'https://evil.com'}).status_is(403)
     t.ua.close()
 
+with subtest('InputRequired'):
+    server = Pyjo.MCP.Server.new()
+    server.secrets = ['passw0rd']
+    caught = []
+
+    @server.tool(context=True)
+    def delete(context) -> str:
+        try:
+            answer = context.elicit('confirm', 'Delete the file?')
+        except Pyjo.MCP.Server.InputRequired:
+            raise
+        except Exception:
+            caught.append(True)
+            return 'Failed'
+        return answer['action']
+
+    asking = {**META, 'io.modelcontextprotocol/clientCapabilities': {'elicitation': {}}}
+    result = dispatch(server, {**request('tools/call', name='delete'), 'params': {'name': 'delete', '_meta': asking}})
+    is_deeply_ok(list(result['result']['inputRequests']), ['confirm'], 'input required')
+    is_deeply_ok(caught, [], 'not caught')
+    e = Pyjo.MCP.Server.InputRequired({'roots': {'method': 'roots/list'}})
+    requests = e.requests
+    is_deeply_ok(requests, {'roots': {'method': 'roots/list'}}, 'requests')
+    is_ok(str(e), 'Input required: roots', 'message')
+
 with subtest('Context'):
     server = Pyjo.MCP.Server.new()
 
@@ -117,10 +144,16 @@ with subtest('Context.new'):
     c = Pyjoyment.new().build_controller()
     context = Pyjo.MCP.Server.Context.new(c)
     is_ok(context.controller, c, 'context')
+    is_ok(context.app, c.app, 'app of the controller')
+    app = Pyjoyment.new()
+    context = Pyjo.MCP.Server.Context.new(client=None, log=app.log, app=app)
+    is_ok(context.app, app, 'app')
 
 with subtest('Context attributes'):
     context = Pyjo.MCP.Server.Context.new()
     dispatch(server, request('tools/list'), context)
+    app = context.app
+    is_ok(app, None, 'app')
     capabilities = context.client_capabilities
     is_deeply_ok(capabilities, {}, 'capabilities')
     info = context.client_info
@@ -129,6 +162,8 @@ with subtest('Context attributes'):
     is_ok(c, None, 'c')
     id = context.id
     is_ok(id, 1, 'id')
+    responses = context.input_responses
+    is_deeply_ok(responses, {}, 'responses')
     level = context.log_level
     is_ok(level, None, 'level')
     meta = context.meta
@@ -137,6 +172,9 @@ with subtest('Context attributes'):
     is_ok(token, None, 'token')
     version = context.protocol_version
     is_ok(version, '2026-07-28', 'version')
+    state = context.state
+    is_deeply_ok(state, {}, 'state')
+    context.state['total'] = 42
     status = context.status
     is_ok(status, None, 'status')
     cb = context.stream
@@ -161,6 +199,63 @@ with subtest('Context.cancel'):
     context = context.cancel()
     ok(context.is_cancelled, 'cancelled')
     is_ok(context.notify('notifications/message'), False, 'no notification of an abandoned request')
+
+with subtest('Context.elicit'):
+    context = Pyjo.MCP.Server.Context.new()
+    context.client_capabilities = {'elicitation': {}}
+    try:
+        result = context.elicit('confirm', 'Delete the file?')
+    except Pyjo.MCP.Server.InputRequired as e:
+        is_deeply_ok(
+            e.requests['confirm']['params'],
+            {'mode': 'form', 'message': 'Delete the file?', 'requestedSchema': {'type': 'object', 'properties': {}}},
+            'confirmation',
+        )
+    schema = {'type': 'object', 'properties': {'name': {'type': 'string'}}}
+    context.input_responses = {'name': {'action': 'accept', 'content': {'name': 'Bob'}}}
+    result = context.elicit('name', 'Who are you?', {'type': 'object', 'properties': {'name': {'type': 'string'}}})
+    is_deeply_ok(result, {'action': 'accept', 'content': {'name': 'Bob'}}, 'result')
+
+    def delete(path):
+        if context.elicit('confirm', f'Delete {path}?')['action'] != 'accept':
+            return 'Cancelled'
+        return 'Deleted'
+
+    context.input_responses['confirm'] = {'action': 'decline'}
+    is_ok(delete('a.txt'), 'Cancelled', 'cancelled')
+
+with subtest('Context.input'):
+    context = Pyjo.MCP.Server.Context.new()
+    context.client_capabilities = {'elicitation': {}, 'roots': {}}
+    context.input_responses = {'roots': {'roots': []}}
+    responses = context.input({'roots': {'method': 'roots/list'}})
+    is_deeply_ok(responses, {'roots': {'roots': []}}, 'responses')
+    schema = {'type': 'object'}
+    try:
+        # Two questions at once
+        responses = context.input(
+            {
+                'name': {'method': 'elicitation/create', 'params': {'message': 'Name?', 'requestedSchema': schema}},
+                'roots': {'method': 'roots/list'},
+            }
+        )
+    except Pyjo.MCP.Server.InputRequired as e:
+        is_deeply_ok(list(e.requests), ['name'], 'request not answered yet')
+    context.client_capabilities = {}
+    try:
+        context.input({'name': {'method': 'elicitation/create', 'params': {}}})
+    except Pyjo.JSON.RPC.Error as e:
+        is_ok(e.code, -32021, 'capability')
+
+with subtest('Context.list_roots'):
+    context = Pyjo.MCP.Server.Context.new()
+    context.input_responses = {'roots': {'roots': [{'uri': 'file:///project'}]}, 'workspace': {'roots': []}}
+    result = context.list_roots()
+    is_ok(result['roots'][0]['uri'], 'file:///project', 'result')
+    result = context.list_roots('workspace')
+    is_deeply_ok(result, {'roots': []}, 'key')
+    paths = [root['uri'] for root in context.list_roots()['roots']]
+    is_deeply_ok(paths, ['file:///project'], 'paths')
 
 with subtest('Context.notify'):
     context = Pyjo.MCP.Server.Context.new()
@@ -199,6 +294,27 @@ with subtest('Context.notify_progress'):
         ],
         'progress',
     )
+
+with subtest('Context.sample'):
+    context = Pyjo.MCP.Server.Context.new()
+    context.client_capabilities = {'sampling': {}}
+    message = {'role': 'assistant', 'content': {'type': 'text', 'text': 'Short.'}, 'model': 'test'}
+    context.input_responses = {'summary': message, 'haiku': message}
+    result = context.sample('summary', 'Summarize the file.', 100)
+    is_deeply_ok(result, message, 'result')
+    messages = [{'role': 'user', 'content': {'type': 'text', 'text': 'Summarize.'}}]
+    result = context.sample('summary', messages, 100, systemPrompt='You are terse.')
+    topic = 'rain'
+    text = context.sample('haiku', f'Write a haiku about {topic}.', 50)['content']['text']
+    is_ok(text, 'Short.', 'text')
+    try:
+        context.sample('other', messages, 100, systemPrompt='You are terse.')
+    except Pyjo.MCP.Server.InputRequired as e:
+        is_deeply_ok(
+            e.requests['other']['params'],
+            {'messages': messages, 'maxTokens': 100, 'systemPrompt': 'You are terse.'},
+            'request',
+        )
 
 with subtest('exception'):
     server = Pyjo.MCP.Server.new()
@@ -247,6 +363,12 @@ with subtest('Attributes'):
     is_deeply_ok(resources, [], 'resources')
     templates = server.resource_templates
     is_deeply_ok(templates, [], 'resource templates')
+    secrets = server.secrets
+    is_ok(secrets, None, 'secrets')
+    server.secrets = ['passw0rd']
+    timeout = server.state_timeout
+    is_ok(timeout, 600, 'timeout')
+    server.state_timeout = 3600
     boolean = server.subscribe
     is_ok(boolean, False, 'subscribe')
     server.subscribe = True

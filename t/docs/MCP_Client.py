@@ -1,5 +1,6 @@
 import Pyjo.IOLoop
 import Pyjo.JSON
+import Pyjo.MCP.Client
 import Pyjo.MCP.Server
 import Pyjo.MCP.Tool
 import Pyjo.SSE
@@ -237,6 +238,22 @@ with subtest('call_tool'):
             print(result['content'][0]['text'])
     is_ok(stdout.getvalue(), 'Division by zero\n', 'printed')
 
+    # A server of its own, whose tool asks for input
+    asking = Pyjo.MCP.Server.new()
+    asking.secrets = ['passw0rd']
+    asking.tool('delete', lambda context, path: context.elicit('ok', f'Delete {path}?')['action'], context=True)
+    asking_app = Pyjoyment.new()
+    asking_app.routes.any('/mcp').to(cb=asking.to_action())
+    other = local(Pyjo.MCP.Client.new('/mcp'), asking_app)
+    other.capabilities = {'elicitation': {}}
+    result = other.call_tool('delete', {'path': 'a.txt'})
+    while result['resultType'] == 'input_required':
+        responses = {key: {'action': 'accept'} for key in result['inputRequests']}
+        state = result.get('requestState')
+        result = other.call_tool('delete', {'path': 'a.txt'}, input_responses=responses, request_state=state)
+    is_ok(result['content'][0]['text'], 'accept', 'input')
+    other.ua.close()
+
 with subtest('call_tool_p'):
     promise = client.call_tool_p('greet', {'name': 'Pyjo'})
     results = []
@@ -258,6 +275,9 @@ with subtest('get_prompt'):
     is_ok(result['messages'][0]['content']['text'], 'Summarize the conversation so far.', 'without arguments')
     result = client.get_prompt('review', {'code': 'x = 1'})
     is_ok(result['messages'][0]['content']['text'], 'Review this Python code:\nx = 1', 'result')
+    responses, state = {}, None
+    result = client.get_prompt('review', {'code': 'x = 1'}, input_responses=responses, request_state=state)
+    is_ok(result['messages'][0]['content']['text'], 'Review this Python code:\nx = 1', 'input')
 
     with contextlib.redirect_stdout(io.StringIO()) as stdout:
         for message in client.get_prompt('review', {'code': 'x = 1'})['messages']:
@@ -389,6 +409,8 @@ with subtest('listen_p'):
 with subtest('read_resource'):
     result = client.read_resource('file:///project/README.md')
     is_ok(result['contents'][0]['text'], '# Project', 'result')
+    result = client.read_resource('file:///project/README.md', input_responses=responses, request_state=state)
+    is_ok(result['contents'][0]['text'], '# Project', 'input')
 
     with contextlib.redirect_stdout(io.StringIO()) as stdout:
         for contents in client.read_resource('file:///project/README.md')['contents']:

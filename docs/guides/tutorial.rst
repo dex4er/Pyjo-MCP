@@ -221,6 +221,35 @@ messages share the stream with the others, and the client cancels it with
 process of ``prefork`` or a thread of ``prethread``, so the worker that changes
 a list notifies only its own clients.
 
+Input
+-----
+
+A tool, a prompt or a resource can ask the client for input before it
+answers: the user, with a form of ``elicitation/create``, the language model
+of the client, with ``sampling/createMessage``, or the directories that the
+client works on, with ``roots/list``. The server keeps no connection open for
+it: the result ``input_required`` gives the client the requests, and the
+client sends the same request again with their responses, a round of the
+request each time. A function asks with
+:meth:`~Pyjo.MCP.Server.Context.elicit`,
+:meth:`~Pyjo.MCP.Server.Context.sample` or
+:meth:`~Pyjo.MCP.Server.Context.list_roots` of its context, with a key that
+names the request in every round, and gets the response once the client has
+given it:
+
+.. literalinclude:: tutorial/confirm.py
+    :language: python
+
+The function runs again from its beginning in each round, so what it does
+before it asks has to be safe to repeat, as here deleting the file only once
+the user confirms. The responses of the rounds before, and the values that the
+function keeps in :attr:`~Pyjo.MCP.Server.Context.state`, come back with the
+``requestState`` of the result, which the ``secrets`` of the application sign,
+as they sign its cookies, and which expires after ten minutes: the client can
+read it, but not change it. A client that does not declare the capability of
+a request, ``elicitation``, ``sampling`` or ``roots``, gets the error
+``-32021`` instead.
+
 Security
 --------
 
