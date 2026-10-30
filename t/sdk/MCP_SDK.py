@@ -14,9 +14,9 @@ import urllib.request
 
 
 # The client of the MCP SDK, of the dependency group "sdk", calls the server of examples/calculator.py, and the ones of
-# the progress, of the prompts and resources, of the resource templates and of the subscriptions of the tutorial, which
-# run in a process of their own, as the client runs the event loop of asyncio in the process of the test, over
-# Streamable HTTP and over stdio
+# the progress, of the prompts and resources, of the resource templates, of the input and of the subscriptions of the
+# tutorial, which run in a process of their own, as the client runs the event loop of asyncio in the process of the test,
+# over Streamable HTTP and over stdio
 
 if not importlib.util.find_spec('mcp'):
     plan(skip_all='the MCP SDK is required, as of the dependency group "sdk"')
@@ -29,6 +29,7 @@ PROGRESS = curfile().dirname().dirname().sibling('docs', 'guides', 'tutorial', '
 REVIEW = curfile().dirname().dirname().sibling('docs', 'guides', 'tutorial', 'review.py').to_str()
 NOTES = curfile().dirname().dirname().sibling('docs', 'guides', 'tutorial', 'notes.py').to_str()
 PROJECT = curfile().dirname().dirname().sibling('docs', 'guides', 'tutorial', 'project.py').to_str()
+CONFIRM = curfile().dirname().dirname().sibling('docs', 'guides', 'tutorial', 'confirm.py').to_str()
 
 
 def port():
@@ -110,6 +111,41 @@ def check_templates(listed, hello, outside):
     is_ok(str(hello.contents[0].uri), 'file:///project/hello.py', 'URI of the resource')
     like_ok(hello.contents[0].text, r'^from Pyjo.MCP.Server import Server', 'resources/read')
     is_ok(outside, 'Resource not found', 'outside of the directory')
+
+
+async def inputs(server):
+    # The input of the user and of the language model, which the callbacks of the client give in the rounds of a request
+    asyncio.get_running_loop().slow_callback_duration = 5
+    from mcp import types
+
+    asked = []
+
+    async def elicitation(context, params):
+        asked.append(params.message)
+        return types.ElicitResult(action='accept' if 'todo' in params.message else 'decline')
+
+    async def sampling(context, params):
+        asked.append(params.messages[0].content.text)
+        return types.CreateMessageResult(
+            role='assistant', content=types.TextContent(type='text', text='Groceries.'), model='test'
+        )
+
+    async with Client(server, elicitation_callback=elicitation, sampling_callback=sampling) as mcp:
+        kept = await mcp.call_tool('delete', {'name': 'notes.txt'})
+        deleted = await mcp.call_tool('delete', {'name': 'todo.txt'})
+        summary = await mcp.call_tool('summarize', {'name': 'notes.txt'})
+    return asked, kept, deleted, summary
+
+
+def check_inputs(asked, kept, deleted, summary):
+    is_deeply_ok(
+        asked,
+        ['Delete notes.txt?', 'Delete todo.txt?', 'Summarize in a few words:\nBuy milk, eggs and bread.'],
+        'input of the user and of the language model',
+    )
+    is_ok(kept.content[0].text, 'Kept notes.txt', 'declined')
+    is_ok(deleted.content[0].text, 'Deleted todo.txt', 'accepted')
+    is_ok(summary.content[0].text, 'Groceries.', 'sampled')
 
 
 async def subscriptions(server):
@@ -226,6 +262,10 @@ with subtest('Resource templates over Streamable HTTP'):
     with daemon(PROJECT) as url:
         check_templates(*asyncio.run(templates(url)))
 
+with subtest('Input over Streamable HTTP'):
+    with daemon(CONFIRM) as url:
+        check_inputs(*asyncio.run(inputs(url)))
+
 with subtest('Subscriptions over Streamable HTTP'):
     with daemon(NOTES) as url:
         check_subscriptions(*asyncio.run(subscriptions(url)))
@@ -246,6 +286,9 @@ with subtest('Resource templates over stdio'):
     check_templates(
         *asyncio.run(templates(StdioServerParameters(command=sys.executable, args=[PROJECT, 'stdio'], env=env)))
     )
+
+with subtest('Input over stdio'):
+    check_inputs(*asyncio.run(inputs(StdioServerParameters(command=sys.executable, args=[CONFIRM, 'stdio'], env=env))))
 
 with subtest('Subscriptions over stdio'):
     check_subscriptions(

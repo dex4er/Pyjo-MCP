@@ -112,6 +112,9 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
             is_ok(t.response['result']['content'][0]['type'], 'text', 'right type')
         """
 
+        # The method and the parameters of the last request, which input_ok sends again
+        self._request: tuple[str, dict[str, Any]] | None = None
+
     @property
     def client(self) -> Client.object:
         """::
@@ -239,6 +242,38 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
             'is', self._response_value('/result/isError'), value, desc or f'isError is {Pyjo.JSON.to_json(value)}'
         )
 
+    def input_ok(
+        self,
+        responses: dict[str, Any] | None = None,
+        /,
+        *,
+        headers: dict[str, Any] | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> Self:
+        """::
+
+            t = t.input_ok({'confirm': {'action': 'accept'}})
+
+        Send the last request again, as the next round of a request whose
+        result is ``input_required``, with the responses to its
+        ``inputRequests``, by their keys, and its ``requestState``, and check
+        for transport errors, with the headers and the ``_meta`` of
+        :meth:`mcp_ok`. ::
+
+            t.call_ok('delete', path='a.txt').result_is('/resultType', 'input_required')
+            t.result_is('/inputRequests/confirm/method', 'elicitation/create')
+            t.input_ok({'confirm': {'action': 'accept'}}).text_content_is('Deleted a.txt')
+        """
+        if (last := self._request) is None:
+            raise Pyjo.Exception.new('No request to send again')
+        method, params = last
+        params = {key: value for key, value in params.items() if key not in ('inputResponses', 'requestState')}
+        if responses is not None:
+            params['inputResponses'] = responses
+        if (state := self._response_value('/result/requestState')) is not None:
+            params['requestState'] = state
+        return self.mcp_ok(method, params, headers=headers, meta=meta)
+
     def list_prompts_ok(self, *, headers: dict[str, Any] | None = None, meta: dict[str, Any] | None = None) -> Self:
         """::
 
@@ -344,6 +379,7 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
             t.mcp_ok('tools/list', meta={'io.modelcontextprotocol/protocolVersion': '1900-01-01'}).status_is(400)
             t.error_code_is(-32022)
         """
+        self._request = (method, params or {})
         client = self.client
         request, tx = self._build_tx(method, params, headers, id, meta)
         notifications: list[dict[str, Any]] = []

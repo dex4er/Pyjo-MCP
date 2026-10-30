@@ -89,8 +89,11 @@ as those of the Perl client, and each has a form `_p` with a promise, as
 `Pyjo.UserAgent` has them. `listen` gives the messages of a subscription to a
 function, as `listen` of the Perl client does, which closes it by returning
 `False`, not any false value, as a function of Python that returns nothing
-returns `None`. The options of the multi round-trip requests come with them in
-the server.
+returns `None`. The options `input_responses` and `request_state` of
+`call_tool`, `get_prompt` and `read_resource` send a round of a multi
+round-trip request, as the options of the Perl client do, and a result
+`input_required` is a result, which the caller answers, as the client does not
+know the user nor a language model.
 
 A client knows the `x-mcp-header` of a tool only from its definition, so the
 headers `Mcp-Param-{name}` of a call come from `tools`, which the last
@@ -206,6 +209,36 @@ written by the event loop of the thread of its connection, and the threads of
 process of prefork or a thread of prethread, as the specification asks for no
 more, and an application whose change all its workers must tell, as a file
 that changes, watches it in each of them.
+
+## The Input
+
+A request that needs input of the client, `tools/call`, `prompts/get` or
+`resources/read`, is a multi round-trip request: the server answers with the
+result `input_required` of its `inputRequests`, and the client sends the same
+request again with their `inputResponses`, as the revision 2026-07-28 has no
+requests of the server to the client. A function asks for input with
+`Context.input` and its forms `elicit`, `sample` and `list_roots`, which
+return the response of a key once the client has given it, and raise
+`InputRequired` before, so the function runs again from its beginning in each
+round, and what it does before it asks has to be safe to repeat. The
+alternative, a function that returns the requests and the state itself, needs
+the same code in every function, and a coroutine cannot be suspended across
+requests, which may come to another worker. `InputRequired` is an `Exception`,
+not a `BaseException`, as the promises of the tools and the event loop catch
+only an `Exception`, so a function that catches every `Exception` lets it go.
+
+The client sends the responses of the last round only, so the server keeps
+the ones of the rounds before, and the `state` of the function, in the
+`requestState` of the result: JSON in Base64 for URLs, signed with HMAC-SHA256
+of a secret of `secrets` of the server, or of the application of the request,
+the first one signing and all of them verifying, as the signed cookies of
+Pyjoyment, so that every worker of prefork and prethread verifies what another
+one signed. The state is bound to the method, the name or the URI and a digest
+of the arguments of the request, and expires after `state_timeout`, so that it
+cannot be replayed on another request; it is signed and not encrypted, as the
+standard library has no cipher, so the client reads it. A request that needs
+a capability that the client does not declare, `elicitation`, `sampling` or
+`roots`, is the error `-32021`, with `requiredCapabilities` in its `data`.
 
 ## The Guides
 

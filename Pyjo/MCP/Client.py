@@ -276,11 +276,20 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
         tx.res.content.on('sse', sse)
         return tx
 
-    def call_tool(self, name: str, arguments: dict[str, Any] | None = None, /) -> dict[str, Any]:
+    def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        /,
+        *,
+        input_responses: dict[str, Any] | None = None,
+        request_state: str | None = None,
+    ) -> dict[str, Any]:
         """::
 
             result = client.call_tool('greet')
             result = client.call_tool('greet', {'name': 'Pyjo'})
+            result = client.call_tool('delete', {'path': 'a.txt'}, input_responses=responses, request_state=state)
 
         Call a tool with its arguments and return its result, or raise the
         :class:`Pyjo.JSON.RPC.Error` of the response. A result with
@@ -289,10 +298,30 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
             result = client.call_tool('divide', {'a': 1, 'b': 0})
             if result['isError']:
                 print(result['content'][0]['text'])
-        """
-        return _result(self.send_request(self._call_tool(name, arguments)))
 
-    def call_tool_p(self, name: str, arguments: dict[str, Any] | None = None, /) -> Pyjo.Promise.object:
+        A result whose ``resultType`` is ``input_required`` asks for input
+        first, with the requests of its ``inputRequests``, which the client
+        answers, and the same call again with the responses, by the keys of
+        the requests, as ``input_responses``, and the ``requestState`` of the
+        result as ``request_state``, is the next round of the request. ::
+
+            result = client.call_tool('delete', {'path': 'a.txt'})
+            while result['resultType'] == 'input_required':
+                responses = {key: {'action': 'accept'} for key in result['inputRequests']}
+                state = result.get('requestState')
+                result = client.call_tool('delete', {'path': 'a.txt'}, input_responses=responses, request_state=state)
+        """
+        return _result(self.send_request(self._call_tool(name, arguments, input_responses, request_state)))
+
+    def call_tool_p(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        /,
+        *,
+        input_responses: dict[str, Any] | None = None,
+        request_state: str | None = None,
+    ) -> Pyjo.Promise.object:
         """::
 
             promise = client.call_tool_p('greet', {'name': 'Pyjo'})
@@ -300,7 +329,7 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
         Same as :meth:`call_tool`, but returns a :mod:`Pyjo.Promise` of the
         result instead of blocking.
         """
-        return self.send_request_p(self._call_tool(name, arguments)).then(_result)
+        return self.send_request_p(self._call_tool(name, arguments, input_responses, request_state)).then(_result)
 
     def discover(self) -> dict[str, Any]:
         """::
@@ -322,22 +351,40 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
         """
         return self.send_request_p(self.build_request('server/discover')).then(_result)
 
-    def get_prompt(self, name: str, arguments: dict[str, Any] | None = None, /) -> dict[str, Any]:
+    def get_prompt(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        /,
+        *,
+        input_responses: dict[str, Any] | None = None,
+        request_state: str | None = None,
+    ) -> dict[str, Any]:
         """::
 
             result = client.get_prompt('summary')
             result = client.get_prompt('review', {'code': 'x = 1'})
+            result = client.get_prompt('review', {'code': 'x = 1'}, input_responses=responses, request_state=state)
 
         Get the messages of a prompt with its arguments, whose values are
         strings, and return its result, or raise the
-        :class:`Pyjo.JSON.RPC.Error` of the response. ::
+        :class:`Pyjo.JSON.RPC.Error` of the response, with the input of the
+        rounds of a request as :meth:`call_tool` has it. ::
 
             for message in client.get_prompt('review', {'code': 'x = 1'})['messages']:
                 print(message['role'], message['content'].get('text'))
         """
-        return _result(self.send_request(self._get_prompt(name, arguments)))
+        return _result(self.send_request(self._get_prompt(name, arguments, input_responses, request_state)))
 
-    def get_prompt_p(self, name: str, arguments: dict[str, Any] | None = None, /) -> Pyjo.Promise.object:
+    def get_prompt_p(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        /,
+        *,
+        input_responses: dict[str, Any] | None = None,
+        request_state: str | None = None,
+    ) -> Pyjo.Promise.object:
         """::
 
             promise = client.get_prompt_p('review', {'code': 'x = 1'})
@@ -345,7 +392,7 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
         Same as :meth:`get_prompt`, but returns a :mod:`Pyjo.Promise` of the
         result instead of blocking.
         """
-        return self.send_request_p(self._get_prompt(name, arguments)).then(_result)
+        return self.send_request_p(self._get_prompt(name, arguments, input_responses, request_state)).then(_result)
 
     def list_prompts(self) -> dict[str, Any]:
         """::
@@ -487,21 +534,27 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
 
         return self.ua.start_p(tx).then(finished, failed)
 
-    def read_resource(self, uri: str) -> dict[str, Any]:
+    def read_resource(
+        self, uri: str, *, input_responses: dict[str, Any] | None = None, request_state: str | None = None
+    ) -> dict[str, Any]:
         """::
 
             result = client.read_resource('file:///project/README.md')
+            result = client.read_resource('file:///project/README.md', input_responses=responses, request_state=state)
 
         Read the contents of a resource with ``resources/read`` and return its
         result, or raise the :class:`Pyjo.JSON.RPC.Error` of the response, as
-        the one of a resource that does not exist. ::
+        the one of a resource that does not exist, with the input of the
+        rounds of a request as :meth:`call_tool` has it. ::
 
             for contents in client.read_resource('file:///project/README.md')['contents']:
                 print(contents.get('text'))
         """
-        return _result(self.send_request(self.build_request('resources/read', {'uri': uri})))
+        return _result(self.send_request(self._read_resource(uri, input_responses, request_state)))
 
-    def read_resource_p(self, uri: str) -> Pyjo.Promise.object:
+    def read_resource_p(
+        self, uri: str, *, input_responses: dict[str, Any] | None = None, request_state: str | None = None
+    ) -> Pyjo.Promise.object:
         """::
 
             promise = client.read_resource_p('file:///project/README.md')
@@ -509,7 +562,7 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
         Same as :meth:`read_resource`, but returns a :mod:`Pyjo.Promise` of
         the result instead of blocking.
         """
-        return self.send_request_p(self.build_request('resources/read', {'uri': uri})).then(_result)
+        return self.send_request_p(self._read_resource(uri, input_responses, request_state)).then(_result)
 
     def read_response(self, tx: Pyjo.Transaction.HTTP.object, request: dict[str, Any]) -> dict[str, Any] | None:
         """::
@@ -570,14 +623,15 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
 
         return start().then(renegotiate)
 
-    # TODO: the options input_responses and request_state of call_tool and get_prompt of MCP::Client, with the multi
-    # round-trip requests of the server
+    def _call_tool(
+        self, name: str, arguments: dict[str, Any] | None, responses: dict[str, Any] | None, state: str | None
+    ) -> dict[str, Any]:
+        return self.build_request('tools/call', _input({'name': name, 'arguments': arguments or {}}, responses, state))
 
-    def _call_tool(self, name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
-        return self.build_request('tools/call', {'name': name, 'arguments': arguments or {}})
-
-    def _get_prompt(self, name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
-        return self.build_request('prompts/get', {'name': name, 'arguments': arguments or {}})
+    def _get_prompt(
+        self, name: str, arguments: dict[str, Any] | None, responses: dict[str, Any] | None, state: str | None
+    ) -> dict[str, Any]:
+        return self.build_request('prompts/get', _input({'name': name, 'arguments': arguments or {}}, responses, state))
 
     def _headers(self, request: dict[str, Any]) -> dict[str, Any]:
         # The headers of MCP, which mirror the body, as the server checks them
@@ -621,6 +675,9 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
             return None if closed else _result(self.read_response(tx, request))
 
         return tx, finished
+
+    def _read_resource(self, uri: str, responses: dict[str, Any] | None, state: str | None) -> dict[str, Any]:
+        return self.build_request('resources/read', _input({'uri': uri}, responses, state))
 
     def _renegotiate(self, request: dict[str, Any], response: Any) -> bool:
         # The newest revision that both support, for one more request, after the error of an unsupported one
@@ -694,6 +751,15 @@ def _encode(value: Any) -> str:
     if _PLAIN.fullmatch(text) and not _BASE64.fullmatch(text):
         return text
     return f'=?base64?{base64.b64encode(text.encode()).decode()}?='
+
+
+def _input(params: dict[str, Any], responses: dict[str, Any] | None, state: str | None) -> dict[str, Any]:
+    # The parameters of a request with the input of the rounds before
+    if responses is not None:
+        params['inputResponses'] = responses
+    if state is not None:
+        params['requestState'] = state
+    return params
 
 
 def _is_response(message: dict[str, Any], id: Any) -> bool:

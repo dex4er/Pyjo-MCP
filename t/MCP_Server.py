@@ -535,6 +535,175 @@ with subtest('Resource templates'):
     tf.read_resource_ok('unsafe:///../etc/passwd').result_is('/contents/0/text', 'Unsafe ../etc/passwd')
     tf.ua.close()
 
+with subtest('Input'):
+    # A server of its own, whose tool, prompt and resource ask the client for input, in the rounds of a request
+    asking = Pyjo.MCP.Server.new(name='ExampleServer', version='1.0.0')
+    rounds = []
+
+    @asking.tool(context=True)
+    def delete(context, path: str) -> str:
+        rounds.append(path)
+        context.state.setdefault('size', len(rounds))
+        if context.elicit('confirm', f'Delete {path}?')['action'] != 'accept':
+            return 'Cancelled'
+        name = context.elicit('name', 'Who are you?', {'type': 'object', 'properties': {'name': {'type': 'string'}}})
+        return f'Deleted {path} of {context.state["size"]} by {name["content"]["name"]}'
+
+    @asking.tool(context=True)
+    async def both(context) -> str:
+        await Pyjo.Promise.timer(0.01)
+        responses = context.input(
+            {
+                'name': {'method': 'elicitation/create', 'params': {'message': 'Name?', 'requestedSchema': {}}},
+                'roots': {'method': 'roots/list'},
+            }
+        )
+        return f'{responses["name"]["action"]} {len(responses["roots"]["roots"])}'
+
+    @asking.tool(context=True)
+    def swallowed(context) -> str:
+        try:
+            return context.list_roots()['roots'][0]['uri']
+        except Pyjo.MCP.Server.InputRequired:
+            raise
+        except Exception:
+            return 'Swallowed'
+
+    @asking.prompt(context=True)
+    def haiku(context, topic: str) -> str:
+        """Write a haiku."""
+        return context.sample('haiku', f'Write a haiku about {topic}.', 50, systemPrompt='Be brief.')['content']['text']
+
+    @asking.resource('workspace://roots', context=True)
+    def workspace(context) -> str:
+        return ' '.join(root['uri'] for root in context.list_roots()['roots'])
+
+    asking_app = Pyjoyment.new()
+    asking_app.log.level = 'fatal'
+    asking_app.secrets = ['passw0rd']
+    asking_app.routes.any('/mcp').to(cb=asking.to_action())
+    ta = Pyjo.MCP.Test.new(asking_app)
+    ta.client.capabilities = {'elicitation': {}, 'sampling': {}, 'roots': {}}
+
+    ta.call_ok('delete', path='a.txt').status_is(200)
+    ta.result_is(
+        {
+            'resultType': 'input_required',
+            'inputRequests': {
+                'confirm': {
+                    'method': 'elicitation/create',
+                    'params': {
+                        'mode': 'form',
+                        'message': 'Delete a.txt?',
+                        'requestedSchema': {'type': 'object', 'properties': {}},
+                    },
+                }
+            },
+            'requestState': ta.response['result']['requestState'],
+            '_meta': SERVER_INFO,
+        }
+    )
+    first = ta.response['result']['requestState']
+    data = json.loads(base64.urlsafe_b64decode(first.split('.')[0] + '=='))
+    is_deeply_ok(data['state'], {'size': 1}, 'state that the client can read')
+    is_deeply_ok(data['responses'], {}, 'no responses yet')
+    ta.input_ok({'confirm': {'action': 'accept'}}).status_is(200)
+    ta.result_is('/resultType', 'input_required').result_is('/inputRequests/name/params/message', 'Who are you?')
+    data = json.loads(base64.urlsafe_b64decode(ta.response['result']['requestState'].split('.')[0] + '=='))
+    is_deeply_ok(data['responses'], {'confirm': {'action': 'accept'}}, 'responses of the rounds before')
+    ta.input_ok({'name': {'action': 'accept', 'content': {'name': 'Bob'}}}).status_is(200)
+    ta.result_is('/resultType', 'complete').text_content_is('Deleted a.txt of 1 by Bob')
+    is_deeply_ok(rounds, ['a.txt', 'a.txt', 'a.txt'], 'function again in each round')
+    ta.call_ok('delete', path='a.txt').input_ok({'confirm': {'action': 'decline'}}).text_content_is('Cancelled')
+
+    ta.mcp_ok('tools/call', {'name': 'delete', 'arguments': {'path': 'b.txt'}, 'requestState': first})
+    ta.status_is(200).error_is({'code': -32602, 'message': 'Invalid or expired requestState'})
+    ta.mcp_ok('tools/call', {'name': 'both', 'arguments': {}, 'requestState': first})
+    ta.error_message_is('Invalid or expired requestState', 'other tool')
+    ta.mcp_ok('tools/call', {'name': 'delete', 'arguments': {'path': 'a.txt'}, 'requestState': first + 'x'})
+    ta.error_message_is('Invalid or expired requestState', 'signature that does not match')
+    ta.mcp_ok('tools/call', {'name': 'delete', 'arguments': {'path': 'a.txt'}, 'requestState': 'nonsense'})
+    ta.error_message_is('Invalid or expired requestState', 'not signed')
+    ta.mcp_ok('tools/call', {'name': 'delete', 'arguments': {'path': 'a.txt'}, 'requestState': 42})
+    ta.error_message_is('Invalid or expired requestState', 'not a string')
+    ta.mcp_ok('tools/call', {'name': 'delete', 'arguments': {'path': 'a.txt'}, 'inputResponses': []})
+    ta.error_is({'code': -32602, 'message': 'Invalid input responses'})
+    ta.mcp_ok('tools/call', {'name': 'delete', 'arguments': {'path': 'a.txt'}, 'requestState': first})
+    ta.result_is('/inputRequests/confirm/method', 'elicitation/create', 'state of the first round')
+
+    asking_app.secrets = ['new_passw0rd', 'passw0rd']
+    ta.mcp_ok('tools/call', {'name': 'delete', 'arguments': {'path': 'a.txt'}, 'requestState': first})
+    ta.result_is('/resultType', 'input_required', 'old secret')
+    asking_app.secrets = ['new_passw0rd']
+    ta.mcp_ok('tools/call', {'name': 'delete', 'arguments': {'path': 'a.txt'}, 'requestState': first})
+    ta.error_message_is('Invalid or expired requestState', 'secret that is gone')
+    asking.secrets = ['passw0rd']
+    ta.mcp_ok('tools/call', {'name': 'delete', 'arguments': {'path': 'a.txt'}, 'requestState': first})
+    ta.result_is('/resultType', 'input_required', 'secrets of the server')
+    asking.state_timeout = -1
+    ta.call_ok('delete', path='a.txt').input_ok({'confirm': {'action': 'accept'}})
+    ta.error_message_is('Invalid or expired requestState', 'expired')
+    asking.state_timeout = 600
+
+    ta.call_ok('both').result_is('/resultType', 'input_required')
+    is_deeply_ok(sorted(ta.response['result']['inputRequests']), ['name', 'roots'], 'requests at once')
+    ok('requestState' not in ta.response['result'], 'no state without responses and values')
+    ta.input_ok({'name': {'action': 'cancel'}}).result_is('/resultType', 'input_required')
+    is_deeply_ok(list(ta.response['result']['inputRequests']), ['roots'], 'request that is not answered yet')
+    ta.input_ok({'roots': {'roots': [{'uri': 'file:///a'}, {'uri': 'file:///b'}]}}).text_content_is('cancel 2')
+    ta.call_ok('swallowed').result_is('/inputRequests/roots/method', 'roots/list')
+
+    ta.get_prompt_ok('haiku', topic='rain').result_is('/resultType', 'input_required')
+    ta.result_is(
+        '/inputRequests/haiku',
+        {
+            'method': 'sampling/createMessage',
+            'params': {
+                'messages': [{'role': 'user', 'content': {'type': 'text', 'text': 'Write a haiku about rain.'}}],
+                'maxTokens': 50,
+                'systemPrompt': 'Be brief.',
+            },
+        },
+    )
+    sampled = {'role': 'assistant', 'content': {'type': 'text', 'text': 'Drops'}, 'model': 'test'}
+    ta.input_ok({'haiku': sampled}).result_is('/resultType', 'complete').text_content_is('Drops')
+
+    ta.read_resource_ok('workspace://roots').result_is('/inputRequests/roots', {'method': 'roots/list'})
+    ta.input_ok({'roots': {'roots': [{'uri': 'file:///a'}]}}).result_is('/contents/0/text', 'file:///a')
+    ta.result_is('/ttlMs', 0)
+
+    ta.client.capabilities = {'roots': {}}
+    ta.call_ok('delete', path='a.txt').status_is(200)
+    ta.error_is(
+        {
+            'code': -32021,
+            'message': 'Missing required client capability: elicitation',
+            'data': {'requiredCapabilities': {'elicitation': {}}},
+        }
+    )
+    ta.get_prompt_ok('haiku', topic='rain').error_message_is('Missing required client capability: sampling')
+    ta.client.capabilities = {}
+    ta.read_resource_ok('workspace://roots').error_message_is('Missing required client capability: roots')
+    ta.client.capabilities = {'elicitation': {}}
+    ta.call_ok('swallowed').text_content_is('Swallowed', 'error caught')
+    ta.ua.close()
+
+    nameless = Pyjo.MCP.Server.new(name='ExampleServer')
+    nameless.tool('ask', lambda context: context.state.update(x=1) or context.list_roots(), context=True)
+    results = []
+    meta = {**META, 'io.modelcontextprotocol/clientCapabilities': {'roots': {}}}
+    request = {
+        'jsonrpc': '2.0',
+        'id': 1,
+        'method': 'tools/call',
+        'params': {'name': 'ask', 'arguments': {}, '_meta': meta},
+    }
+    nameless.dispatch_p(request, Pyjo.MCP.Server.Context.new()).then(results.append).wait()
+    is_ok(results[0]['error']['code'], -32603, 'no secrets to sign the state')
+    nameless.secrets = ['passw0rd']
+    nameless.dispatch_p(request, Pyjo.MCP.Server.Context.new()).then(results.append).wait()
+    ok(results[1]['result']['requestState'], 'secrets of the server without an application')
+
 with subtest('Notifications'):
     # A server of its own, whose tools notify the client before their results
     notifying = Pyjo.MCP.Server.new(name='ExampleServer')

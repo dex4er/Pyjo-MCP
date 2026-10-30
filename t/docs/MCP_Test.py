@@ -206,6 +206,31 @@ with subtest('is_error_is'):
     t.call_ok('add', a=1)
     t = t.is_error_is(True, 'error of the tool')
 
+with subtest('input_ok'):
+    # A server of its own, whose tool asks for input
+    asking = Pyjo.MCP.Server.new()
+    asking.secrets = ['passw0rd']
+
+    @asking.tool(context=True)
+    def delete(context, path: str) -> str:
+        if context.elicit('confirm', f'Delete {path}?')['action'] != 'accept':
+            return 'Cancelled'
+        return f'Deleted {path}'
+
+    asking_app = Pyjoyment.new()
+    asking_app.routes.any('/mcp').to(cb=asking.to_action())
+    main, t = t, Pyjo.MCP.Test.new(asking_app)
+    t.client.capabilities = {'elicitation': {}}
+    t.call_ok('delete', path='a.txt')
+    t = t.input_ok({'confirm': {'action': 'accept'}})
+    t.text_content_is('Deleted a.txt')
+
+    t.call_ok('delete', path='a.txt').result_is('/resultType', 'input_required')
+    t.result_is('/inputRequests/confirm/method', 'elicitation/create')
+    t.input_ok({'confirm': {'action': 'accept'}}).text_content_is('Deleted a.txt')
+    t.ua.close()
+    t = main
+
 with subtest('list_prompts_ok'):
     t = t.list_prompts_ok()
     t.status_is(200).prompt_exists('review')
