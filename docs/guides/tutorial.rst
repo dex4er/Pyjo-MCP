@@ -176,6 +176,26 @@ Claude Code lists the prompts as commands, as ``/mcp__reviewer__review``,
 which ask for the arguments, and the resources as mentions, as
 ``@reviewer:docs://style``, which put their contents into the conversation.
 
+Resource templates
+------------------
+
+The resources that a server cannot list, as the files of a directory, are a
+resource template, a URI Template of :rfc:`6570`: the client lists the
+templates with ``resources/templates/list``, makes a URI of one of them, and
+reads it with ``resources/read``. A URI with variables is a template, whose
+function gets their values as keyword arguments, here the path of a file of
+the directory of the script:
+
+.. literalinclude:: tutorial/project.py
+    :language: python
+
+The values come from the client, so a URI whose value has a segment ``..``,
+an absolute path or the character NUL, which would read a file outside of the
+directory, has no resource, unless the template is made with ``safe=False``. A
+function that finds nothing raises the error of JSON-RPC itself. A resource
+that the server lists comes before a template that matches its URI too, and
+the templates are tried in their order.
+
 Subscriptions
 -------------
 
@@ -265,7 +285,8 @@ More
 ----
 
 The API of the server, of the tools, of the prompts, of the resources, of the
-client and of the tests is in :mod:`Pyjo.MCP.Server`, :mod:`Pyjo.MCP.Tool`,
-:mod:`Pyjo.MCP.Prompt`, :mod:`Pyjo.MCP.Resource`, :mod:`Pyjo.MCP.Client` and
-:mod:`Pyjo.MCP.Test`, and the deployment of an application, with the servers
+resource templates, of the client and of the tests is in
+:mod:`Pyjo.MCP.Server`, :mod:`Pyjo.MCP.Tool`, :mod:`Pyjo.MCP.Prompt`,
+:mod:`Pyjo.MCP.Resource`, :mod:`Pyjo.MCP.ResourceTemplate`,
+:mod:`Pyjo.MCP.Client` and :mod:`Pyjo.MCP.Test`, and the deployment of an application, with the servers
 of Pyjoyment and a container, in its :doc:`cookbook <pyjoyment:guides/cookbook>`.

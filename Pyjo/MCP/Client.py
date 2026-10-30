@@ -391,6 +391,29 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
         """
         return self.send_request_p(self.build_request('resources/list')).then(_result)
 
+    def list_resource_templates(self) -> dict[str, Any]:
+        """::
+
+            result = client.list_resource_templates()
+
+        List the resource templates of the server with
+        ``resources/templates/list``, whose URIs :meth:`read_resource` reads. ::
+
+            for template in client.list_resource_templates()['resourceTemplates']:
+                print(template['uriTemplate'], template.get('mimeType'))
+        """
+        return _result(self.send_request(self.build_request('resources/templates/list')))
+
+    def list_resource_templates_p(self) -> Pyjo.Promise.object:
+        """::
+
+            promise = client.list_resource_templates_p()
+
+        Same as :meth:`list_resource_templates`, but returns a
+        :mod:`Pyjo.Promise` of the result instead of blocking.
+        """
+        return self.send_request_p(self.build_request('resources/templates/list')).then(_result)
+
     def list_tools(self) -> dict[str, Any]:
         """::
 

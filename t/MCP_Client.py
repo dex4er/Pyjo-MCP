@@ -82,6 +82,7 @@ def readme() -> str:
 
 
 server.resource('file:///project/logo.png', lambda: b'\x89PNG', name='logo', mime_type='image/png')
+server.resource('notes://{number}', lambda number: f'Note {number}', name='note')
 
 
 def application(action):
@@ -260,6 +261,14 @@ with subtest('Resources'):
     e = failure(lambda: c.read_resource('file:///nonexistent.txt'))
     isa_ok(e, Pyjo.JSON.RPC.Error, 'resource not found')
     is_deeply_ok(error(e), (-32602, 'Resource not found'), 'error of JSON-RPC')
+    result = c.list_resource_templates()
+    is_deeply_ok(
+        result['resourceTemplates'],
+        [{'uriTemplate': 'notes://{number}', 'name': 'note', 'mimeType': 'text/plain'}],
+        'templates',
+    )
+    is_ok(sent[-1]['Mcp-Method'], 'resources/templates/list', 'Mcp-Method')
+    is_ok(c.read_resource('notes://1')['contents'][0]['text'], 'Note 1', 'resource of a template')
     is_deeply_ok(e.data, {'uri': 'file:///nonexistent.txt'}, 'data of the error')
 
 with subtest('Subscriptions'):
@@ -529,10 +538,11 @@ with subtest('Non-blocking'):
     c.list_prompts_p().then(lambda result: results.append(len(result['prompts']))).wait()
     c.get_prompt_p('review', {'code': 'x'}).then(lambda result: results.append(len(result['messages']))).wait()
     c.list_resources_p().then(lambda result: results.append(len(result['resources']))).wait()
+    c.list_resource_templates_p().then(lambda result: results.append(len(result['resourceTemplates']))).wait()
     c.read_resource_p('file:///project/README.md').then(
         lambda result: results.append(result['contents'][0]['text'])
     ).wait()
-    is_deeply_ok(results, ['Utilities.', 6, 3, 'later', None, 1, 1, 2, '# Project'], 'results')
+    is_deeply_ok(results, ['Utilities.', 6, 3, 'later', None, 1, 1, 2, 1, '# Project'], 'results')
     c.call_tool_p('power').catch(errors.append).wait()
     is_deeply_ok(error(errors[0]), (-32602, 'Unknown tool: power'), 'error of JSON-RPC')
     c = client(application(None))

@@ -59,6 +59,12 @@ def readme() -> str:
     return '# Project'
 
 
+@server.resource('notes://{number}')
+def note(number: str) -> str:
+    """A note, by its number."""
+    return f'Note {number}'
+
+
 app = Pyjoyment.new()
 app.log.level = 'fatal'
 app.routes.any('/mcp').to(cb=server.to_action())
@@ -208,6 +214,10 @@ with subtest('list_resources_ok'):
     t = t.list_resources_ok()
     t.status_is(200).resource_exists('file:///project/README.md')
 
+with subtest('list_resource_templates_ok'):
+    t = t.list_resource_templates_ok()
+    t.status_is(200).resource_template_exists('notes://{number}')
+
 with subtest('list_tools_ok'):
     t = t.list_tools_ok()
     t.status_is(200).tool_exists('greet')
@@ -300,6 +310,22 @@ with subtest('resource_is'):
     is_ok(calls[0][1]['mimeType'], 'text/markdown', 'resource')
     t = t.resource_is('file:///project/README.md', '/mimeType', 'text/markdown')
     t = t.resource_is('file:///project/README.md', '/name', 'readme', 'right name')
+
+with subtest('resource_template_exists'):
+    t.list_resource_templates_ok()
+    t = t.resource_template_exists('notes://{number}')
+    t = t.resource_template_exists('notes://{number}', 'has notes')
+
+with subtest('resource_template_exists_not'):
+    t = t.resource_template_exists_not('file:///{+path}')
+    t = t.resource_template_exists_not('file:///{+path}', 'no files')
+
+with subtest('resource_template_is'):
+    with recording(t) as calls:
+        t = t.resource_template_is('notes://{number}', {'uriTemplate': 'notes://{number}', 'name': 'note'})
+    is_ok(calls[0][1]['mimeType'], 'text/plain', 'resource template')
+    t = t.resource_template_is('notes://{number}', '/mimeType', 'text/plain')
+    t = t.resource_template_is('notes://{number}', '/name', 'note', 'right name')
 
 with subtest('response_is'):
     t.discover_ok()

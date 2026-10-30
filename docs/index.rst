@@ -14,6 +14,7 @@
     api/Pyjo_MCP_Client
     api/Pyjo_MCP_Prompt
     api/Pyjo_MCP_Resource
+    api/Pyjo_MCP_ResourceTemplate
     api/Pyjo_MCP_Server
     api/Pyjo_MCP_Test
     api/Pyjo_MCP_Tool

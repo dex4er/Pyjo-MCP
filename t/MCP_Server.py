@@ -445,6 +445,96 @@ with subtest('Prompts and resources'):
     tl.error_message_is('Header mismatch: Missing Mcp-Name header')
     tl.ua.close()
 
+with subtest('Resource templates'):
+    # A server of its own, with resource templates only, and a resource that a template matches too
+    files = Pyjo.MCP.Server.new(name='ExampleServer', version='1.0.0')
+
+    @files.resource('file:///project/{+path}', title='Project Files', mime_type='application/octet-stream')
+    def project_file(path: str) -> str:
+        """Access files in the project directory."""
+        return f'File {path}'
+
+    @files.resource('file:///project/README.md')
+    def readme() -> str:
+        """The documentation of the project."""
+        return '# Project'
+
+    @files.resource('users://{id}', context=True)
+    async def user(context, id: str) -> str:
+        await Pyjo.Promise.timer(0.01)
+        return f'User {id} of {context.client_info.get("name")}'
+
+    files.resource('users://{id}/raw', lambda id: f'Raw {id}', name='raw_user')
+    files.resource('unsafe:///{+path}', lambda path: f'Unsafe {path}', name='unsafe', safe=False)
+
+    files_app = Pyjoyment.new()
+    files_app.log.level = 'fatal'
+    files_app.routes.any('/mcp').to(cb=files.to_action())
+    tf = Pyjo.MCP.Test.new(files_app)
+    tf.client.name = 'ExampleClient'
+    is_deeply_ok([resource.uri for resource in files.resources], ['file:///project/README.md'], 'resources')
+    is_deeply_ok(
+        [template.uri for template in files.resource_templates],
+        ['file:///project/{+path}', 'users://{id}', 'users://{id}/raw', 'unsafe:///{+path}'],
+        'resource templates',
+    )
+
+    tf.discover_ok().status_is(200).result_is('/capabilities', {'resources': {}})
+    templates_only = Pyjo.MCP.Server.new(name='ExampleServer')
+    templates_only.resource('users://{id}', lambda id: id)
+    templates_app = Pyjoyment.new()
+    templates_app.routes.any('/mcp').to(cb=templates_only.to_action())
+    tt = Pyjo.MCP.Test.new(templates_app)
+    tt.discover_ok().status_is(200).result_is('/capabilities', {'resources': {}}, 'resource templates only')
+    tt.ua.close()
+
+    tf.list_resource_templates_ok().status_is(200)
+    tf.result_is('/ttlMs', 0).result_is('/cacheScope', 'public').result_is('/_meta', SERVER_INFO)
+    tf.result_is(
+        '/resourceTemplates/0',
+        {
+            'uriTemplate': 'file:///project/{+path}',
+            'name': 'project_file',
+            'title': 'Project Files',
+            'description': 'Access files in the project directory.',
+            'mimeType': 'application/octet-stream',
+        },
+    )
+    tf.resource_template_is(
+        'users://{id}/raw', {'uriTemplate': 'users://{id}/raw', 'name': 'raw_user', 'mimeType': 'text/plain'}
+    )
+    tf.mcp_ok('resources/templates/list', {'cursor': 'next-page-cursor'}).status_is(200)
+    tf.error_is({'code': -32602, 'message': 'Invalid cursor'})
+    tf.list_resources_ok().status_is(200).result_is('/resources/0/uri', 'file:///project/README.md')
+    tf.result_is('/resources/1', None)
+
+    tf.read_resource_ok('file:///project/src/main.rs').status_is(200)
+    tf.result_is(
+        {
+            'resultType': 'complete',
+            'contents': [
+                {
+                    'uri': 'file:///project/src/main.rs',
+                    'mimeType': 'application/octet-stream',
+                    'text': 'File src/main.rs',
+                }
+            ],
+            'ttlMs': 0,
+            'cacheScope': 'public',
+            '_meta': SERVER_INFO,
+        }
+    )
+    tf.read_resource_ok('file:///project/README.md').result_is('/contents/0/text', '# Project')
+    tf.read_resource_ok('users://1').result_is('/contents/0/text', 'User 1 of ExampleClient')
+    tf.read_resource_ok('users://1/raw').result_is('/contents/0/text', 'Raw 1')
+    tf.read_resource_ok('users://').status_is(200)
+    tf.error_is({'code': -32602, 'message': 'Resource not found', 'data': {'uri': 'users://'}})
+    tf.read_resource_ok('file:///project/../etc/passwd').status_is(200)
+    tf.error_is({'code': -32602, 'message': 'Resource not found', 'data': {'uri': 'file:///project/../etc/passwd'}})
+    tf.read_resource_ok('file:///project//etc/passwd').status_is(200).error_message_is('Resource not found')
+    tf.read_resource_ok('unsafe:///../etc/passwd').result_is('/contents/0/text', 'Unsafe ../etc/passwd')
+    tf.ua.close()
+
 with subtest('Notifications'):
     # A server of its own, whose tools notify the client before their results
     notifying = Pyjo.MCP.Server.new(name='ExampleServer')
@@ -606,7 +696,7 @@ with subtest('Subscriptions'):
     except Pyjo.Exception.object as e:
         is_ok(e.message, 'Unknown list: templates', 'unknown list')
     else:
-        fail('unknown list')
+        fail_ok('unknown list')
 
     # A subscription that the server ends gracefully, when its event loop stops, with the comments that keep it open
     client = Pyjo.MCP.Client.new('/mcp', ua=s.ua)

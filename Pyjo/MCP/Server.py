@@ -44,8 +44,9 @@ Pyjo.MCP.Server - Server of MCP
 revision :data:`Pyjo.MCP.PROTOCOL_VERSION` of the specification, with the
 methods ``server/discover``, ``tools/list`` and ``tools/call``, whose tools are
 :mod:`Pyjo.MCP.Tool` objects, ``prompts/list`` and ``prompts/get``, whose
-prompts are :mod:`Pyjo.MCP.Prompt` objects, and ``resources/list`` and
-``resources/read``, whose resources are :mod:`Pyjo.MCP.Resource` objects. The
+prompts are :mod:`Pyjo.MCP.Prompt` objects, and ``resources/list``,
+``resources/templates/list`` and ``resources/read``, whose resources are
+:mod:`Pyjo.MCP.Resource` and :mod:`Pyjo.MCP.ResourceTemplate` objects. The
 protocol is stateless: each request carries its revision and the capabilities
 of its client in its ``_meta``, which the server checks, and a result carries
 the name and the version of the server in its own ``_meta``.
@@ -76,7 +77,8 @@ See also
 --------
 
 :mod:`Pyjo.MCP.Tool`, :mod:`Pyjo.MCP.Prompt`, :mod:`Pyjo.MCP.Resource`,
-:mod:`Pyjo.JSON.RPC`, :mod:`Pyjoyment.Plugin.AllowedHosts`, :mod:`Pyjo.MCP`.
+:mod:`Pyjo.MCP.ResourceTemplate`, :mod:`Pyjo.JSON.RPC`, :mod:`Pyjoyment.Plugin.AllowedHosts`,
+:mod:`Pyjo.MCP`.
 
 Classes
 -------
@@ -91,11 +93,12 @@ import Pyjo.JSON.RPC
 import Pyjo.Log
 import Pyjo.Promise
 import Pyjo.Server.Stdio
+import Pyjo.URL.Template
 
 # The package of the distribution, imported relatively, as pyright takes the regular package Pyjo of Pyjoyment, which
 # hides the namespace that extend_path keeps open
 from .. import MCP
-from . import Prompt, Resource, Tool
+from . import Prompt, Resource, ResourceTemplate, Tool
 
 import base64
 import binascii
@@ -462,6 +465,16 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         ``resources/list``.
         """
 
+        self.resource_templates: list[ResourceTemplate.object] = []
+        """::
+
+            templates = server.resource_templates
+
+        The :mod:`Pyjo.MCP.ResourceTemplate` objects of the server, in the order
+        of ``resources/templates/list``, in which ``resources/read`` tries
+        them for a URI that no resource has.
+        """
+
         self.subscribe = False
         """::
 
@@ -498,9 +511,10 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         rpc.method('prompts/list', self._prompts_list, context=True)
         rpc.method('prompts/get', self._prompts_get, context=True)
         rpc.method('resources/list', self._resources_list, context=True)
+        rpc.method('resources/templates/list', self._resources_templates_list, context=True)
         rpc.method('resources/read', self._resources_read, context=True)
         rpc.method('subscriptions/listen', self._listen, context=True)
-        # TODO: resources/templates/list, with the URI templates of RFC 6570
+        # TODO: completion/complete, of the arguments of the prompts and the variables of the resource templates
 
         # The subscriptions of each thread, as a notification is written by the event loop of the thread of its stream
         self._local = threading.local()
@@ -543,9 +557,10 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
 
         Send ``notifications/tools/list_changed``, or the one of the prompts
         or of the resources, to the subscriptions that want it, after a change
-        of :attr:`tools`, :attr:`prompts` or :attr:`resources`, and return how
-        many got it. The subscriptions are those of the process and of the
-        thread, as each worker of a server that has several has its own. ::
+        of :attr:`tools`, :attr:`prompts`, :attr:`resources` or
+        :attr:`resource_templates`, and return how many got it. The
+        subscriptions are those of the process and of the thread, as each
+        worker of a server that has several has its own. ::
 
             server.tools = [tool for tool in server.tools if tool.name != 'add']
             server.notify_list_changed('tools')
@@ -625,15 +640,23 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
 
             cb = server.resource('file:///project/README.md', lambda: '# Project', mime_type='text/markdown')
             cb = server.resource('config://app', lambda context: ..., context=True)
+            cb = server.resource('notes://{number}', lambda number: ...)
 
         Add a resource of the URI, a :mod:`Pyjo.MCP.Resource` of the function
-        with the options of its constructor, and return the function. Without
-        a function, it is a decorator. ::
+        with the options of its constructor, and return the function. A URI
+        Template of :rfc:`6570` with variables adds a resource template, a
+        :mod:`Pyjo.MCP.ResourceTemplate`, whose function gets their values as
+        keyword arguments. Without a function, it is a decorator. ::
 
             @server.resource('file:///project/README.md', mime_type='text/markdown')
             def readme() -> str:
                 \"\"\"The documentation of the project.\"\"\"
                 return '# Project'
+
+            @server.resource('notes://{number}')
+            def note(number: str) -> str:
+                \"\"\"A note, by its number.\"\"\"
+                return notes[int(number) - 1]
         """
         if cb is None:
 
@@ -878,7 +901,7 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
             capabilities['tools'] = {**listed}
         if self.prompts:
             capabilities['prompts'] = {**listed}
-        if self.resources:
+        if self.resources or self.resource_templates:
             capabilities['resources'] = {**listed, **({'subscribe': True} if self.subscribe else {})}
         result: dict[str, Any] = {'supportedVersions': list(MCP.SUPPORTED_VERSIONS), 'capabilities': capabilities}
         if self.instructions is not None:
@@ -1052,7 +1075,10 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         return self._result({'prompts': [prompt.__json__() for prompt in self.prompts]}, cacheable=True)
 
     def _resource(self, uri: str, cb: Callable[..., Any], options: dict[str, Any]) -> Callable[..., Any]:
-        self.resources.append(Resource.new(uri, cb, **options))
+        if Pyjo.URL.Template.new(uri).variables:
+            self.resource_templates.append(ResourceTemplate.new(uri, cb, **options))
+        else:
+            self.resources.append(Resource.new(uri, cb, **options))
         return cb
 
     def _resources_list(self, context: Context, **params: Any) -> dict[str, Any]:
@@ -1063,13 +1089,22 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
     def _resources_read(self, context: Context, **params: Any) -> Pyjo.Promise.object:
         self._meta(context, params)
         uri = params.get('uri')
-        if (resource := next((resource for resource in self.resources if resource.uri == uri), None)) is None:
+        resource = next((resource for resource in self.resources if resource.uri == uri), None)
+        if resource is None and isinstance(uri, str):
+            resource = next(filter(None, (template.resource(uri) for template in self.resource_templates)), None)
+        if resource is None:
             raise Pyjo.JSON.RPC.Error.new(Pyjo.JSON.RPC.INVALID_PARAMS, 'Resource not found', {'uri': uri})
 
         def result(value: dict[str, Any]) -> dict[str, Any]:
             return self._result(value, cacheable=True)
 
         return resource.read_p(context).then(result)
+
+    def _resources_templates_list(self, context: Context, **params: Any) -> dict[str, Any]:
+        self._meta(context, params)
+        self._cursor(params)
+        templates = [template.__json__() for template in self.resource_templates]
+        return self._result({'resourceTemplates': templates}, cacheable=True)
 
     @property
     def _subscriptions(self) -> list['_Subscription']:

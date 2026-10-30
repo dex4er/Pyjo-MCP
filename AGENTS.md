@@ -17,9 +17,8 @@ the MIT license.
 
 `Pyjo.MCP.Server` is made on `Pyjo.JSON.RPC` of Pyjoyment: its methods,
 `server/discover`, `tools/list`, `tools/call`, `prompts/list`, `prompts/get`,
-`resources/list`, `resources/read` and `subscriptions/listen`, are methods of a
-dispatcher
-of JSON-RPC that get the `Context` of the request, and `dispatch_p` takes a
+`resources/list`, `resources/templates/list`, `resources/read` and
+`subscriptions/listen`, are methods of a dispatcher of JSON-RPC that get the `Context` of the request, and `dispatch_p` takes a
 message of any transport. A batch and a request with the `id` of `null` are
 invalid requests, as MCP has neither. Each method checks the `_meta` of its
 request first, as the protocol is stateless: there is no `initialize`, and
@@ -160,8 +159,22 @@ in `data`, as the specification has it.
 The result of `resources/read` is cacheable, with the `ttlMs` and the
 `cacheScope` of the server, as the results of the lists, and the one of
 `prompts/get` is not, as the specification has them. A resource is a URI of
-its own, as `file:///` or a scheme of the server: the templates of URIs, of
-RFC 6570, with `resources/templates/list`, come later.
+its own, as `file:///` or a scheme of the server.
+
+A URI of `resource` with variables is a resource template, a URI Template of
+RFC 6570, whose `Pyjo.URL.Template` of Pyjoyment matches the URIs of
+`resources/read` that no resource has, in the order of the templates, and
+whose function gets the values of the variables as keyword arguments. The
+RFC leaves the match to the implementations, so it is the one of
+`Pyjo.URL.Template`, linear in the length of the URI, and a template whose
+expressions it cannot tell apart raises when it is added, not at its first
+read. The values come from the client, and a function of a template that
+reads files is the common case, so a value with a segment `..`, an absolute
+path of Unix or of Windows or NUL has no resource by default, also when it
+is percent-encoded, as the match decodes it; `safe=False` turns that off. A
+URI without a value that the function requires has no resource either, as
+the client made it, not the server. `completion/complete`, which completes
+the values of the variables, is left for later.
 
 ## The Subscriptions
 
@@ -172,15 +185,13 @@ cancels it, whose response is not written. The acknowledgment is the first
 notification of the `Context`, which opens the stream of events over Streamable
 HTTP, as any notification does, and the request needs that stream, so a client
 without `text/event-stream` in its `Accept` gets `-32600`. The acknowledgment
-honors every notification that the client asks for, as the MCP SDK does, also
-a resource that the server does not have, which may come later; `list_changed`
+honors every notification that the client asks for, also a resource that the server does not have, which may come later; `list_changed`
 and `subscribe` of the server only declare in `server/discover` that the
 application sends them.
 
 A server ends a subscription with a response, not with `notifications/cancelled`,
 which the page of the cancellation names for it: the page of the subscriptions,
-which describes the graceful closure, gives the response, and so does the MCP
-SDK. Over Streamable HTTP, the event `finish` of the event loop, which a graceful
+which describes the graceful closure, gives the response. Over Streamable HTTP, the event `finish` of the event loop, which a graceful
 stop emits, ends the subscriptions of its connections, as a stream that stays
 open would keep the server waiting until its timeout, and a recurring timer
 writes a comment of the stream every `heartbeat` seconds, which keeps a proxy
@@ -223,11 +234,11 @@ hides the namespace that `extend_path` keeps open, so it does not find
 
 `t/sdk` runs the client of the MCP SDK, of the dependency group `sdk`, against
 the server of `examples/calculator.py` and the ones of the tutorial, of the
-progress, of the prompts and resources and of the subscriptions, as an
-implementation of the
-specification of its own; without the group, the test is skipped. The server
-runs in a process of its own, as the client runs the event loop of asyncio in
-the process of the test, and the job `sdk` of the workflow Tests runs it:
+progress, of the prompts and resources, of the resource templates and of the
+subscriptions, as an implementation of the specification of its own; without
+the group, the test is skipped. The server runs in a process of its own, as the
+client runs the event loop of asyncio in the process of the test, and the job
+`sdk` of the workflow Tests runs it:
 
 ```sh
 mise exec -- uv run --group sdk --with-editable ../Pyjoyment python -m Pyjo.Prove -l -r t/sdk

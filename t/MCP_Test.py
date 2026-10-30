@@ -180,6 +180,7 @@ with subtest('Prompts and resources'):
 
     library.resource('file:///project/README.md', lambda: '# Project', name='readme', mime_type='text/markdown')
     library.resource('file:///project/logo.png', lambda: b'\x89PNG', name='logo', mime_type='image/png')
+    library.resource('notes://{number}', lambda number: f'Note {number}', name='note')
     library.resource(
         'file:///project/docs',
         lambda: {
@@ -224,6 +225,15 @@ with subtest('Prompts and resources'):
     t.read_resource_ok('file:///project/docs').text_content_is('AC')
     t.read_resource_ok('file:///etc/passwd').error_code_is(-32602).error_message_is('Resource not found')
     t.error_is('/data/uri', 'file:///etc/passwd')
+    t.list_resource_templates_ok().status_is(200).resource_template_exists('notes://{number}')
+    t.resource_template_exists_not('file:///{+path}')
+    is_ok(sent[-1]['Mcp-Method'], 'resources/templates/list', 'Mcp-Method')
+    t.resource_template_is('notes://{number}', '/name', 'note')
+    t.resource_template_is(
+        'notes://{number}', {'uriTemplate': 'notes://{number}', 'name': 'note', 'mimeType': 'text/plain'}
+    )
+    t.resource_template_is('file:///{+path}', None)
+    t.read_resource_ok('notes://1').status_is(200).text_content_is('Note 1')
     t.read_resource_ok('file:///project/README.md', headers={'Mcp-Name': None}).status_is(400)
     t.read_resource_ok('file:///project/README.md', meta={'io.modelcontextprotocol/protocolVersion': '1900-01-01'})
     t.status_is(400).error_code_is(-32022)
@@ -239,14 +249,22 @@ with subtest('Prompts and resources'):
     more = recorder(t)
     t.resource_exists('file:///project/README.md').resource_exists_not('file:///project/README.md')
     t.resource_is('file:///project/README.md', '/name', 'readme', 'right name')
+    t.handler = handler
+    t.list_resource_templates_ok()
+    templates = recorder(t)
+    t.resource_template_exists('notes://{number}').resource_template_exists_not('notes://{number}')
+    t.resource_template_is('notes://{number}', '/name', 'note', 'right name')
     is_deeply_ok(
-        [call[0 :: len(call) - 1] for call in calls + more],
+        [call[0 :: len(call) - 1] for call in calls + more + templates],
         [
             ('ok', 'has prompt "review"'),
             ('ok', 'has no prompt "review"'),
             ('is_deeply', 'exact match for prompt "review" "/name"'),
             ('ok', 'has resource "file:///project/README.md"'),
             ('ok', 'has no resource "file:///project/README.md"'),
+            ('is_deeply', 'right name'),
+            ('ok', 'has resource template "notes://{number}"'),
+            ('ok', 'has no resource template "notes://{number}"'),
             ('is_deeply', 'right name'),
         ],
         'descriptions',
