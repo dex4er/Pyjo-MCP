@@ -40,7 +40,9 @@ its own ``_meta``.
 
 The requests come over Streamable HTTP, the transport of
 :meth:`~Pyjo_MCP_Server.to_action`, an action of a route of :mod:`Pyjoyment`,
-which answers each request with a JSON object. The specification requires the
+which answers each request with a JSON object, or with a stream of events when
+the request sends notifications before its result, as its progress, and the
+client accepts one. The specification requires the
 validation of ``Origin`` of a server on ``localhost``, against DNS rebinding,
 which :mod:`Pyjoyment.Plugin.AllowedHosts` does, for the whole application or
 the routes under its helper.
@@ -62,7 +64,6 @@ Classes
 -------
 """
 
-import Pyjo.Base
 import Pyjo.EventEmitter
 import Pyjo.Exception
 import Pyjo.IOLoop.Messages
@@ -83,7 +84,7 @@ import builtins
 import re
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, cast, overload
+from typing import TYPE_CHECKING, Any, Self, cast, overload
 
 
 if TYPE_CHECKING:
@@ -99,14 +100,31 @@ _BASE64 = re.compile(r'=\?base64\?(.*)\?=', re.S)
 _PLAIN = re.compile(r'[\t\x20-\x7e]*')
 
 
-class Context(Pyjo.Base.object):
+class Context(Pyjo.EventEmitter.object):
     """
     The context of a request of MCP, with what its ``_meta`` tells, which a
-    tool that asks for it gets before its arguments. ::
+    tool that asks for it gets before its arguments, and the notifications
+    that the tool sends to the client before its result. ::
 
         @server.tool(context=True)
         def whoami(context) -> str:
             return context.client_info.get('name', 'unknown')
+
+    Events
+    ------
+
+    ``cancelled`` ::
+
+        @context.on('cancelled')
+        def cancelled(context):
+            ...
+
+    Emitted once when the client abandons the request, as when it closes the
+    connection of a response of Streamable HTTP before the result, so that a
+    tool that runs long stops. ::
+
+        id = Pyjo.IOLoop.recurring(1, lambda: ...)
+        context.on('cancelled', lambda context: Pyjo.IOLoop.remove(id))
     """
 
     def __init__(
@@ -123,6 +141,8 @@ class Context(Pyjo.Base.object):
 
         Construct a new :class:`Context` object.
         """
+        super().__init__()
+
         self.client = client
         """::
 
@@ -169,12 +189,30 @@ class Context(Pyjo.Base.object):
         or ``None``.
         """
 
+        self.log_level: str | None = None
+        """::
+
+            level = context.log_level
+
+        The lowest level of the log messages that the client wants of the
+        request, as its ``_meta`` tells it, or ``None`` for none.
+        """
+
         self.meta: dict[str, Any] = {}
         """::
 
             meta = context.meta
 
         The ``_meta`` of the request.
+        """
+
+        self.progress_token: Any = None
+        """::
+
+            token = context.progress_token
+
+        The ``progressToken`` of the ``_meta`` of the request, which the
+        notifications of its progress name, or ``None`` for none.
         """
 
         self.protocol_version: str | None = None
@@ -193,6 +231,92 @@ class Context(Pyjo.Base.object):
         The status of the response of HTTP of an error, which the request sets,
         or ``None`` for the one of its code.
         """
+
+        self.stream: Callable[[dict[str, Any]], Any] | None = None
+        """::
+
+            cb = context.stream
+            context.stream = lambda notification: ...
+
+        The function of the transport that sends a notification of the request
+        to the client, as an event of the stream of the response of Streamable
+        HTTP, or a message of the transport stdio, or ``None``, where the
+        notifications go nowhere, as for a client of Streamable HTTP that does
+        not accept a stream of events.
+        """
+
+        self._cancelled = False
+
+    @property
+    def is_cancelled(self) -> bool:
+        """::
+
+            boolean = context.is_cancelled
+
+        Check if the client abandoned the request, for a tool that cannot
+        subscribe to the event ``cancelled`` and checks it instead.
+        """
+        return self._cancelled
+
+    def cancel(self) -> Self:
+        """::
+
+            context = context.cancel()
+
+        Mark the request as abandoned, and emit the event ``cancelled``, once.
+        """
+        if not self._cancelled:
+            self._cancelled = True
+            self.emit('cancelled')
+        return self
+
+    def notify(self, method: str, params: dict[str, Any] | None = None) -> bool:
+        """::
+
+            boolean = context.notify('notifications/message', {'level': 'info', 'data': 'Hello'})
+
+        Send a notification of JSON-RPC to the client, before the result of
+        the request, and return whether it was sent: not for a request that
+        the client abandoned, nor without a :attr:`stream`.
+        """
+        if self._cancelled or (stream := self.stream) is None:
+            return False
+        stream({'jsonrpc': '2.0', 'method': method, 'params': params or {}})
+        return True
+
+    def notify_log(self, level: str, data: Any) -> bool:
+        """::
+
+            boolean = context.notify_log('info', 'Fetching the forecast')
+            boolean = context.notify_log('error', {'code': 23})
+
+        Send a log message of the level, ``debug``, ``info``, ``notice``,
+        ``warning``, ``error``, ``critical``, ``alert`` or ``emergency``, as
+        ``notifications/message``, if the client wants the messages of the
+        level, as :attr:`log_level` tells, and return whether it was sent.
+        """
+        if (minimum := self.log_level) is None or _LEVELS.get(level, 0) < _LEVELS.get(minimum, 0):
+            return False
+        return self.notify('notifications/message', {'level': level, 'data': data})
+
+    def notify_progress(self, progress: float, total: float | None = None, message: str | None = None) -> bool:
+        """::
+
+            boolean = context.notify_progress(1)
+            boolean = context.notify_progress(1, 3, 'Fetched the first page')
+
+        Send the progress of the request, as ``notifications/progress``, if
+        the client asked for it with a :attr:`progress_token`, and return
+        whether it was sent.
+        """
+        if (token := self.progress_token) is None:
+            return False
+        params: dict[str, Any] = {'progressToken': token, 'progress': progress}
+        if total is not None:
+            params['total'] = total
+        if message is not None:
+            params['message'] = message
+        return self.notify('notifications/progress', params)
 
 
 class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
@@ -337,9 +461,16 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
             server.serve(messages)
             messages.start()
         """
-        return self._rpc.serve(
-            peer, dispatch_p=lambda message, client: self.dispatch_p(message, Context(client=client, log=log))
-        )
+
+        # TODO: notifications/cancelled of the peer, which cancels the Context of the request of its requestId, as a
+        # connection that closes does over Streamable HTTP
+        def dispatch_p(message: Any, client: Pyjo.JSON.RPC.Client) -> Pyjo.Promise.object:
+            # The notifications of a request go to the peer, on the same stream
+            context = Context(client=client, log=log)
+            context.stream = lambda notification: client.notify(notification['method'], **notification['params'])
+            return self.dispatch_p(message, context)
+
+        return self._rpc.serve(peer, dispatch_p=dispatch_p)
 
     @overload
     def tool[F: Callable[..., Any]](self, name: F, cb: None = None) -> F: ...
@@ -396,7 +527,12 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         for a notification, ``405 Method Not Allowed`` for another method of
         HTTP, and ``400 Bad Request`` for a header of MCP that does not match
         the body, as ``MCP-Protocol-Version``, ``Mcp-Method``, ``Mcp-Name`` and
-        ``Mcp-Param-{name}``, or a request that is not valid. ::
+        ``Mcp-Param-{name}``, or a request that is not valid. The first
+        notification of the request, of :meth:`Context.notify`, turns the
+        response into a stream of events, ``text/event-stream``, where the
+        ``Accept`` of the request has it, with the notifications and then the
+        response, and a connection that closes before the result cancels the
+        :class:`Context`. ::
 
             # Pyjoyment.Lite
             any('/mcp', server.to_action())
@@ -420,8 +556,38 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
                     return c.render(json=error, status=400)
 
             context = Context.new(c)
+            streaming = done = False
+
+            # The notifications of the request open a stream of events, where the client accepts one, before the result
+            def stream(notification: dict[str, Any]) -> None:
+                nonlocal streaming
+                if not streaming:
+                    streaming = True
+                    c.helpers.inactivity_timeout(0)
+                    c.res.headers.header('X-Accel-Buffering', 'no')
+                    c.write_sse()
+                c.write_sse({'text': Pyjo.JSON.to_json(notification)})
+
+            if 'text/event-stream' in (c.req.headers.accept or ''):
+                context.stream = stream
+
+            # A connection that closes before the result abandons the request
+            def finish(c: 'Pyjoyment.Controller.object') -> None:
+                if not done:
+                    context.cancel()
+
+            c.on('finish', finish)
 
             def respond(response: Any = None) -> None:
+                nonlocal done
+                done = True
+                if context.is_cancelled:
+                    return
+                if streaming:
+                    if response is not None:
+                        c.write_sse({'text': Pyjo.JSON.to_json(response)})
+                    c.finish()
+                    return
                 if response is None:
                     c.rendered(202)
                     return
@@ -546,6 +712,8 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         context.protocol_version = version
         context.client_capabilities = cast(dict[str, Any], capabilities)
         context.client_info = _object(info)
+        context.log_level = level if isinstance(level := meta_.get(MCP.META_LOG_LEVEL), str) else None
+        context.progress_token = meta_.get('progressToken')
 
     def _result(self, result: dict[str, Any], cacheable: bool = False) -> dict[str, Any]:
         # A result with its type, the name and the version of the server, and the hints of the cache
@@ -577,6 +745,12 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
             raise Pyjo.JSON.RPC.Error.new(Pyjo.JSON.RPC.INVALID_PARAMS, 'Invalid cursor')
         return self._result({'tools': [tool.__json__() for tool in self.tools]}, cacheable=True)
 
+
+# The levels of the log messages of a client, as the ones of syslog
+_LEVELS = {
+    level: number
+    for number, level in enumerate(('debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency'))
+}
 
 # The status of the response of HTTP of an error of JSON-RPC
 _STATUS = {

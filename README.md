@@ -133,8 +133,9 @@ are on [Read the Docs](https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/lat
 
 A server of the tools of MCP over Streamable HTTP and stdio, with
 `server/discover`, `tools/list` and `tools/call`, a client of them over
-Streamable HTTP, and assertions of tests with its requests. Prompts,
-resources, the subscriptions and the streams of SSE of the server are to come.
+Streamable HTTP, and assertions of tests with its requests. A tool sends its
+progress and its log messages before its result. Prompts, resources and the
+subscriptions are to come.
 
 ## License
 

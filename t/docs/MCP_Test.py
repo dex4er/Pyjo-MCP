@@ -28,6 +28,14 @@ def add(a: int, b: int) -> int:
     return a + b
 
 
+@server.tool(context=True)
+def count(context, to: int) -> int:
+    """Count to a number."""
+    for number in range(1, to + 1):
+        context.notify_progress(number, to)
+    return to
+
+
 server.tool('weather', lambda: {'temperature': 21.5}, input_schema={'type': 'object'}, output_schema={'type': 'object'})
 server.tool(
     'execute_sql',
@@ -88,10 +96,20 @@ with subtest('new'):
     t = Pyjo.MCP.Test.new(app, {'foo': 'bar'})
     is_ok(t.app.config('foo'), 'bar', 'configuration')
 
+with subtest('notifications'):
+    t.discover_ok()
+    notifications = t.notifications
+    is_deeply_ok(notifications, [], 'no notifications')
+
+    params = {'name': 'count', 'arguments': {'to': 3}}
+    t.mcp_ok('tools/call', params, meta={'progressToken': 'count-1'}).status_is(200)
+    is_ok(t.notifications[0]['method'], 'notifications/progress', 'progress')
+    is_ok(len(t.notifications), 3, 'of the last request')
+
 with subtest('response'):
     t.discover_ok()
     response = t.response
-    is_ok(response['id'], 1, 'response')
+    is_ok(response['id'], t.client._id, 'response')
     t.response = {'jsonrpc': '2.0', 'id': 1, 'result': {}}
     t.result_is({})
 
@@ -193,7 +211,7 @@ with subtest('result_is'):
     t.list_tools_ok()
     with recording(t) as calls:
         t = t.result_is({'resultType': 'complete', 'tools': []})
-    is_ok(len(calls[0][1]['tools']), 4, 'tools')
+    is_ok(len(calls[0][1]['tools']), 5, 'tools')
     t.call_ok('greet', name='Pyjo')
     t = t.result_is('/content/0/text', 'Hello, Pyjo!')
     t = t.result_is('/content/0/text', 'Hello, Pyjo!', 'right text')

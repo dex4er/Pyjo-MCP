@@ -37,6 +37,21 @@ dispatch, for a request only, as the specification defines no headers of a
 notification. `to_action` does not check `Host` and `Origin`:
 `Pyjoyment.Plugin.AllowedHosts` does, as the application knows its hosts.
 
+The notifications of a request, as its progress and its log messages, go
+before its result, through `stream` of its `Context`, which the transport
+sets. Over Streamable HTTP, the first notification turns the response into a
+stream of events, so a request without notifications, also an asynchronous
+one, is answered with JSON, as before, where `MCP::Server` of the Perl `MCP`
+opens the stream for every result that is a promise. The stream needs a client
+that has `text/event-stream` in its `Accept`; for another one the notifications
+go nowhere and the result is JSON. The stream has no inactivity timeout, as a
+tool may take long between two notifications, and `X-Accel-Buffering: no`, so
+that nginx passes each event at once. The connection of the stream that closes
+before the result cancels the `Context`, which emits `cancelled` once, and the
+result of a cancelled request is not written. A notification that the client
+did not ask for, progress without a `progressToken` or a log message below its
+`logLevel`, is not sent at all.
+
 ## The Transport stdio
 
 `to_stdio` is the hook `before_server_start` that serves the server on the
@@ -56,6 +71,9 @@ time. And `dispatch_p` of the server rejects the batches and the `id` of
 `null`, which the dispatcher of JSON-RPC accepts. The `Context` has no
 controller over stdio, so it carries the log of the application, which gets the
 errors of the server that the controller logs over HTTP.
+The `stream` of the `Context` sends a notification of the request with `notify`
+of the client of the peer, so it is a message of the same stream, before the
+response.
 
 ## The Client
 

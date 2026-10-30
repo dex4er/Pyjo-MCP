@@ -131,6 +131,24 @@ The protocol is stateless: a server does not keep anything of a client
 between its requests. A tool that needs a state, as a basket of a shop,
 returns a handle of it, which the language model passes to the next tool.
 
+Progress
+--------
+
+A tool that takes long tells the client how far it is with
+:meth:`~Pyjo.MCP.Server.Context.notify_progress`, and what it does with
+:meth:`~Pyjo.MCP.Server.Context.notify_log`, before its result. The client
+asks for them in the ``_meta`` of its request, with a ``progressToken`` and
+the lowest level of the log messages that it wants, and the notifications that
+it did not ask for go nowhere. Over Streamable HTTP, the first notification
+turns the response into a stream of events, which ends with the result, when
+the client accepts one, and a client that closes the connection before the
+result cancels the request, which
+:attr:`~Pyjo.MCP.Server.Context.is_cancelled` tells. Over the transport stdio,
+the notifications are messages of the same stream:
+
+.. literalinclude:: tutorial/progress.py
+    :language: python
+
 Security
 --------
 

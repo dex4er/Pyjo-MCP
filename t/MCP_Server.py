@@ -309,6 +309,112 @@ with subtest('Custom headers from tool parameters'):
     t.mcp_ok('tools/call', {'name': 'execute_sql', 'arguments': arguments}, headers={**headers})
     t.status_is(400).json_is('/error/message', 'Header mismatch: Unexpected Mcp-Param-Limit header')
 
+with subtest('Notifications'):
+    # A server of its own, whose tools notify the client before their results
+    notifying = Pyjo.MCP.Server.new(name='ExampleServer')
+    cancelled = []
+    sent = []
+
+    @notifying.tool(context=True)
+    def steps(context) -> str:
+        sent.append(context.notify_log('debug', 'Too detailed'))
+        sent.append(context.notify_log('info', 'Starting'))
+        sent.append(context.notify_progress(1, 2, 'Half'))
+        return 'Done'
+
+    @notifying.tool(context=True)
+    def later_steps(context) -> str:
+        context.notify_progress(1)
+        return Pyjo.Promise.timer(0.01).then(lambda: context.notify_progress(2) and 'Later')
+
+    @notifying.tool(context=True)
+    def endless(context) -> str:
+        context.on('cancelled', lambda context: cancelled.append(context.is_cancelled))
+        context.notify_progress(0)
+        return Pyjo.Promise.timer(0.5).then(lambda: 'Too late')
+
+    @notifying.tool
+    def quiet() -> str:
+        return 'Quiet'
+
+    streams = Pyjoyment.new()
+    streams.log.level = 'fatal'
+    streams.routes.any('/mcp').to(cb=notifying.to_action())
+    n = Pyjo.MCP.Test.new(streams)
+    meta = {'progressToken': 'p1', 'io.modelcontextprotocol/logLevel': 'info'}
+
+    n.mcp_ok('tools/call', {'name': 'steps'}, meta=meta).status_is(200)
+    n.header_is('Content-Type', 'text/event-stream').header_is('X-Accel-Buffering', 'no')
+    n.text_content_is('Done').response_is('/id', n.client._id)
+    is_deeply_ok(
+        n.notifications,
+        [
+            {'jsonrpc': '2.0', 'method': 'notifications/message', 'params': {'level': 'info', 'data': 'Starting'}},
+            {
+                'jsonrpc': '2.0',
+                'method': 'notifications/progress',
+                'params': {'progressToken': 'p1', 'progress': 1, 'total': 2, 'message': 'Half'},
+            },
+        ],
+        'notifications before the response',
+    )
+    is_deeply_ok(sent, [False, True, True], 'below the level of the client')
+
+    n.mcp_ok('tools/call', {'name': 'later_steps'}, meta=meta).status_is(200).text_content_is('Later')
+    is_deeply_ok([m['params']['progress'] for m in n.notifications], [1, 2], 'notifications of an asynchronous tool')
+
+    sent.clear()
+    n.call_ok('steps').status_is(200).header_like('Content-Type', re.compile(r'^application/json'))
+    n.text_content_is('Done')
+    is_deeply_ok((n.notifications, sent), ([], [False, False, False]), 'no notifications without _meta')
+
+    n.mcp_ok('tools/call', {'name': 'steps'}, meta=meta, headers={'Accept': 'application/json'}).status_is(200)
+    n.header_like('Content-Type', re.compile(r'^application/json')).text_content_is('Done')
+    is_deeply_ok((n.notifications, sent[3:]), ([], [False, False, False]), 'no stream for a client without one')
+
+    n.mcp_ok('tools/call', {'name': 'quiet'}, meta=meta).status_is(200)
+    n.header_like('Content-Type', re.compile(r'^application/json')).text_content_is('Quiet')
+
+    # A client that closes the connection at the first event abandons the request
+    request = n.client.build_request('tools/call', {'name': 'endless', 'arguments': {}, '_meta': meta})
+    tx = n.client.build_tx(request)
+
+    @tx.res.content.on('sse')
+    def interrupt(content, event):
+        if event:
+            tx.res.error = {'message': 'Interrupted'}
+
+    n.ua.start(tx)
+    Pyjo.Promise.timer(0.1).wait()
+    is_deeply_ok(cancelled, [True], 'cancelled')
+    Pyjo.Promise.timer(0.5).wait()
+    is_deeply_ok(cancelled, [True], 'once')
+    n.ua.close()
+
+    # The transport stdio, whose notifications are messages of the stream before the response
+    class Messages(Pyjo.EventEmitter.object):
+        def __init__(self):
+            super().__init__()
+            self.sent = []
+
+        def close_gracefully(self):
+            pass
+
+        def send(self, message):
+            self.sent.append(json.loads(message))
+            return self
+
+    peer = Messages()
+    notifying.serve(peer)
+    params = {'name': 'steps', 'arguments': {}, '_meta': {**META, **meta}}
+    peer.emit('message', json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': params}))
+    Pyjo.Promise.timer(0.01).wait()
+    is_deeply_ok(
+        [message.get('method') or message['result']['content'][0]['text'] for message in peer.sent],
+        ['notifications/message', 'notifications/progress', 'Done'],
+        'notifications over stdio',
+    )
+
 with subtest('Transport'):
     t.get_ok('/mcp').status_is(405).header_is('Allow', 'POST').json_is('/error/code', -32600)
     t.delete_ok('/mcp').status_is(405)
