@@ -181,9 +181,17 @@ with subtest('Response in a stream of events'):
         c.render_later()
         return server.dispatch_p(c.req.json()).then(respond)
 
-    t = Pyjo.MCP.Test.new(application(events))
+    app_events = application(events)
+    encodings = []
+    app_events.hook('after_dispatch', lambda c: encodings.append(c.res.headers.content_encoding))
+    t = Pyjo.MCP.Test.new(app_events)
     t.call_ok('greet', name='Pyjo').status_is(200).header_is('Content-Type', 'text/event-stream')
     t.text_content_is('Hello, Pyjo!').response_is('/id', t.client._id)
+
+    # The stream of the tools, which the renderer compresses, as it is longer than its threshold
+    t.list_tools_ok().status_is(200).tool_exists('greet').tool_exists('execute_sql')
+    is_deeply_ok(encodings, [None, 'gzip'], 'compressed stream')
+    is_deeply_ok(list(t.client.tools), ['greet', 'divide', 'whoami', 'execute_sql'], 'tools of the client')
     t.ua.close()
 
 with subtest('No response of JSON-RPC'):
