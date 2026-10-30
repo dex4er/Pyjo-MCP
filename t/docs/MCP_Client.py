@@ -260,6 +260,30 @@ with subtest('call_tool_p'):
     promise.then(results.append).wait()
     is_ok(results[0]['content'][0]['text'], 'Hello, Pyjo!', 'result')
 
+with subtest('complete'):
+    # A server of its own, with completions
+    completing = Pyjo.MCP.Server.new()
+    completing.prompt('review', lambda code, language: code, complete={'language': ['Perl', 'Python']})
+    completing.resource('repo://{owner}/{repo}', lambda owner, repo: '', name='repo', complete={'repo': ['Pyjoyment']})
+    completing_app = Pyjoyment.new()
+    completing_app.routes.any('/mcp').to(cb=completing.to_action())
+    other = local(Pyjo.MCP.Client.new('/mcp'), completing_app)
+    result = other.complete({'type': 'ref/prompt', 'name': 'review'}, 'language', 'Py')
+    is_deeply_ok(result['completion']['values'], ['Python'], 'prompt')
+    result = other.complete({'type': 'ref/resource', 'uri': 'repo://{owner}/{repo}'}, 'repo', 'Py', {'owner': 'dex4er'})
+    is_deeply_ok(result['completion']['values'], ['Pyjoyment'], 'resource template')
+
+    with contextlib.redirect_stdout(io.StringIO()) as stdout:
+        print(other.complete({'type': 'ref/prompt', 'name': 'review'}, 'language', 'P')['completion']['values'])
+    is_ok(stdout.getvalue(), "['Perl', 'Python']\n", 'printed')
+
+with subtest('complete_p'):
+    promise = other.complete_p({'type': 'ref/prompt', 'name': 'review'}, 'language', 'Py')
+    results = []
+    promise.then(results.append).wait()
+    is_deeply_ok(results[0]['completion']['values'], ['Python'], 'result')
+    other.ua.close()
+
 with subtest('discover'):
     result = client.discover()
     is_deeply_ok(result['supportedVersions'], ['2026-07-28'], 'result')

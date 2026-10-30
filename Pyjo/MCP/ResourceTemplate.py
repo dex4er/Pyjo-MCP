@@ -52,7 +52,7 @@ import functools
 import inspect
 import re
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, cast
 
 
@@ -73,12 +73,14 @@ class Pyjo_MCP_ResourceTemplate(Pyjo.Base.object):
         mime_type: str = 'text/plain',
         context: bool = False,
         safe: bool = True,
+        complete: Mapping[str, Any] | None = None,
     ) -> None:
         """::
 
             template = Pyjo.MCP.ResourceTemplate.new('notes://{number}', note)
             template = Pyjo.MCP.ResourceTemplate.new('file:///project/{+path}', read, mime_type='text/markdown')
             template = Pyjo.MCP.ResourceTemplate.new('users://{id}', lambda context, id: ..., context=True)
+            template = Pyjo.MCP.ResourceTemplate.new('notes://{number}', note, complete={'number': ['1', '2']})
 
         Construct a new :mod:`Pyjo.MCP.ResourceTemplate` object of a URI
         Template and a function. With ``context``, the function gets the
@@ -96,6 +98,20 @@ class Pyjo_MCP_ResourceTemplate(Pyjo.Base.object):
             cb = template.cb
 
         The function of the resource template.
+        """
+
+        self.complete: dict[str, Any] = dict(complete or {})
+        """::
+
+            completions = template.complete
+
+        The completions of the values of the variables, by their names, which
+        ``completion/complete`` gives: a list of the values, which the server
+        filters by what the user has typed, or a function that gets it, and the
+        values of the other variables, after the context of the request with
+        ``context``, and returns the values, or a :mod:`Pyjo.Promise` of them. ::
+
+            template.complete['number'] = lambda value, arguments: [str(n) for n in range(1, len(notes) + 1)]
         """
 
         self.context = context

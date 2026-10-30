@@ -154,7 +154,7 @@ with subtest('Progress'):
 
 with subtest('Prompts and resources'):
     t = tutorial('review')
-    t.discover_ok().status_is(200).result_is('/capabilities', {'prompts': {}, 'resources': {}})
+    t.discover_ok().status_is(200).result_is('/capabilities', {'prompts': {}, 'resources': {}, 'completions': {}})
     t.list_resources_ok().status_is(200)
     t.result_is(
         '/resources',
@@ -193,11 +193,12 @@ with subtest('Prompts and resources'):
     t.result_is('/messages/0/content/resource/uri', 'docs://style')
     t.result_is('/messages/1/content/text', 'Review this code for style:\nx = "1"')
     t.get_prompt_ok('review').status_is(200).error_message_is('Missing required argument: code')
+    t.complete_ok({'type': 'ref/prompt', 'name': 'review'}, 'focus', 's').result_is('/completion/values', ['style'])
     t.ua.close()
 
 with subtest('Resource templates'):
     t = tutorial('project')
-    t.discover_ok().status_is(200).result_is('/capabilities', {'resources': {}})
+    t.discover_ok().status_is(200).result_is('/capabilities', {'resources': {}, 'completions': {}})
     t.list_resource_templates_ok().status_is(200)
     t.result_is(
         '/resourceTemplates',
@@ -217,6 +218,9 @@ with subtest('Resource templates'):
     t.error_is({'code': -32602, 'message': 'Resource not found', 'data': {'uri': 'file:///project/missing.py'}})
     t.read_resource_ok('file:///project/../tutorial.rst').status_is(200).error_message_is('Resource not found')
     t.read_resource_ok('file:///project/%2Fetc%2Fpasswd').status_is(200).error_message_is('Resource not found')
+    template = {'type': 'ref/resource', 'uri': 'file:///project/{+path}'}
+    t.complete_ok(template, 'path', 'h').result_is('/completion/values', ['hello.py', 'hello_test.py'])
+    t.complete_ok(template, 'path', '').result_is('/completion/total', len(EXAMPLES.list_tree()))
     t.ua.close()
 
 with subtest('Subscriptions'):

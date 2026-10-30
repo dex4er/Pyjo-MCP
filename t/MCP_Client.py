@@ -306,6 +306,25 @@ with subtest('Input'):
     ).wait()
     is_deeply_ok(results, ['decline', 'Drops', '1'], 'promises')
 
+with subtest('Completion'):
+    completing = Pyjo.MCP.Server.new(name='ExampleServer')
+    completing.prompt('review', lambda code, language: code, complete={'language': ['Perl', 'Python']})
+    completing.resource(
+        'repo://{owner}/{repo}', lambda owner, repo: '', name='repo', complete={'repo': lambda value, args: [str(args)]}
+    )
+    c = client(application(completing.to_action()))
+    result = c.complete({'type': 'ref/prompt', 'name': 'review'}, 'language', 'Py')
+    is_deeply_ok(result['completion'], {'values': ['Python'], 'total': 1, 'hasMore': False}, 'prompt')
+    result = c.complete({'type': 'ref/resource', 'uri': 'repo://{owner}/{repo}'}, 'repo', 'P', {'owner': 'dex4er'})
+    is_deeply_ok(result['completion']['values'], ["{'owner': 'dex4er'}"], 'resource template with arguments')
+    e = failure(lambda: c.complete({'type': 'ref/prompt', 'name': 'summary'}, 'x', ''))
+    is_deeply_ok(error(e), (-32602, 'Unknown prompt: summary'), 'error of JSON-RPC')
+    results = []
+    c.complete_p({'type': 'ref/prompt', 'name': 'review'}, 'language', 'pe').then(
+        lambda result: results.append(result['completion']['values'])
+    ).wait()
+    is_deeply_ok(results, [['Perl']], 'promise')
+
 with subtest('Subscriptions'):
     c = client()
     messages = []

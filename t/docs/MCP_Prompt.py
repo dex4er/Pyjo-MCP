@@ -50,11 +50,17 @@ with subtest('new'):
     is_deeply_ok(prompt.arguments, [{'name': 'code', 'required': True}], 'arguments')
     prompt = Pyjo.MCP.Prompt.new(lambda context, code: ..., context=True)
     ok(prompt.context, 'context')
+    prompt = Pyjo.MCP.Prompt.new(review, complete={'language': ['Perl', 'Python']})
+    is_deeply_ok(prompt.complete, {'language': ['Perl', 'Python']}, 'complete')
 
 with subtest('Attributes'):
     prompt = Pyjo.MCP.Prompt.new(review)
     arguments = prompt.arguments
     is_deeply_ok([argument['name'] for argument in arguments], ['code', 'language'], 'arguments')
+    completions = prompt.complete
+    is_deeply_ok(completions, {}, 'completions')
+    prompt.complete['language'] = lambda value, arguments: ['Perl', 'Python']
+    is_deeply_ok(prompt.complete['language']('P', {}), ['Perl', 'Python'], 'function')
     cb = prompt.cb
     is_ok(cb, review, 'cb')
     boolean = prompt.context

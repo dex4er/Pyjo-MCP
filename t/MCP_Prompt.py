@@ -4,7 +4,10 @@ import Pyjo.Promise
 
 from Pyjo.Test import *
 
+import enum
 import re
+
+from typing import Literal
 
 
 # A prompt of a server of MCP, of a function
@@ -82,6 +85,30 @@ with subtest('Options'):
         pass
 
     is_deeply_ok(Pyjo.MCP.Prompt.new(nothing).arguments, [], 'no arguments of a function without parameters')
+
+with subtest('Completions'):
+
+    class Focus(enum.Enum):
+        BUGS = 'bugs'
+        STYLE = 'style'
+
+    def review(code: str, language: Literal['Perl', 'Python'] = 'Python', focus: Focus = Focus.BUGS) -> str:
+        return code
+
+    prompt = Pyjo.MCP.Prompt.new(review)
+    is_deeply_ok(prompt.complete, {'language': ['Perl', 'Python'], 'focus': ['bugs', 'style']}, 'Literal and Enum')
+    is_deeply_ok(prompt.__json__()['arguments'][1], {'name': 'language', 'required': False}, 'not in the definition')
+
+    def completer(value, arguments):
+        return ['x']
+
+    prompt = Pyjo.MCP.Prompt.new(review, complete={'language': ['PHP'], 'code': completer})
+    is_deeply_ok(
+        prompt.complete, {'language': ['PHP'], 'focus': ['bugs', 'style'], 'code': completer}, 'over the type hints'
+    )
+    prompt = Pyjo.MCP.Prompt.new(lambda **args: '', arguments=[{'name': 'code'}], complete={'code': ['x']})
+    is_deeply_ok(prompt.complete, {'code': ['x']}, 'arguments of their own')
+    is_deeply_ok(Pyjo.MCP.Prompt.new(lambda code: code).complete, {}, 'none')
 
 with subtest('Context'):
 

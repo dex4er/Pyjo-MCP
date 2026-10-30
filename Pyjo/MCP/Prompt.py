@@ -79,6 +79,7 @@ class Pyjo_MCP_Prompt(Pyjo.Base.object):
         description: str | None = None,
         arguments: list[Mapping[str, Any]] | None = None,
         context: bool = False,
+        complete: Mapping[str, Any] | None = None,
     ) -> None:
         """::
 
@@ -86,12 +87,14 @@ class Pyjo_MCP_Prompt(Pyjo.Base.object):
             prompt = Pyjo.MCP.Prompt.new(review, name='code_review', title='Code review')
             prompt = Pyjo.MCP.Prompt.new(lambda **args: ..., arguments=[{'name': 'code', 'required': True}])
             prompt = Pyjo.MCP.Prompt.new(lambda context, code: ..., context=True)
+            prompt = Pyjo.MCP.Prompt.new(review, complete={'language': ['Perl', 'Python']})
 
         Construct a new :mod:`Pyjo.MCP.Prompt` object of a function. With
         ``context``, the function gets the :class:`~Pyjo.MCP.Server.Context` of
         the request before its arguments.
         """
         skip = 1 if context else 0
+        completions: dict[str, Any] = {}
         if arguments is None:
             data = cast(dict[str, Any], Pyjo.JSON.Schema.parameters(cb, skip=skip).data)
             if description is None:
@@ -104,6 +107,8 @@ class Pyjo_MCP_Prompt(Pyjo.Base.object):
                     argument['description'] = text
                 argument['required'] = key in required
                 arguments.append(argument)
+                if isinstance(values := cast(dict[str, Any], property).get('enum'), list):
+                    completions[key] = [str(value) for value in cast(list[Any], values)]
 
         self.arguments: list[dict[str, Any]] = [dict(argument) for argument in arguments]
         """::
@@ -121,6 +126,21 @@ class Pyjo_MCP_Prompt(Pyjo.Base.object):
             cb = prompt.cb
 
         The function of the prompt.
+        """
+
+        self.complete: dict[str, Any] = {**completions, **(complete or {})}
+        """::
+
+            completions = prompt.complete
+
+        The completions of the values of the arguments, by their names, which
+        ``completion/complete`` gives: a list of the values, which the server
+        filters by what the user has typed, or a function that gets it, and the
+        values of the other arguments, after the context of the request with
+        ``context``, and returns the values, or a :mod:`Pyjo.Promise` of them. The
+        values of a parameter with ``Literal`` or ``Enum`` complete by default. ::
+
+            prompt.complete['language'] = lambda value, arguments: ['Perl', 'Python']
         """
 
         self.context = context

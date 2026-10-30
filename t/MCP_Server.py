@@ -16,6 +16,8 @@ import base64
 import json
 import re
 
+from typing import Literal
+
 
 # The server of MCP of the revision 2026-07-28 over Streamable HTTP, with the examples of its specification
 
@@ -703,6 +705,93 @@ with subtest('Input'):
     nameless.secrets = ['passw0rd']
     nameless.dispatch_p(request, Pyjo.MCP.Server.Context.new()).then(results.append).wait()
     ok(results[1]['result']['requestState'], 'secrets of the server without an application')
+
+with subtest('Completion'):
+    # A server of its own, with the completions of the arguments of its prompts and of the variables of its templates
+    completing = Pyjo.MCP.Server.new(name='ExampleServer', version='1.0.0')
+
+    @completing.prompt
+    def review(code: str, language: Literal['Perl', 'Python', 'PHP', 'JavaScript'] = 'Python') -> str:
+        return code
+
+    def frameworks(value, arguments):
+        language = arguments.get('language', '')
+        return [name for name in ('Flask', 'FastAPI', 'Mojolicious', 'Pyjoyment') if name.startswith(value)] + [
+            language
+        ]
+
+    completing.prompt('framework', lambda language, framework: '', complete={'framework': frameworks})
+
+    async def owners(context, value, arguments):
+        await Pyjo.Promise.timer(0.01)
+        return [f'{context.client_info.get("name")}-{value}']
+
+    completing.resource(
+        'repo://{owner}/{repo}',
+        lambda context, owner, repo: '',
+        name='repo',
+        context=True,
+        complete={'owner': owners, 'repo': lambda context, value, arguments: Pyjo.Promise.resolve(['a', 'b'])},
+    )
+    completing.resource('many://{n}', lambda n: n, name='many', complete={'n': [str(n) for n in range(150)]})
+    completing.resource('broken://{n}', lambda n: n, name='broken', complete={'n': lambda value, arguments: 1 / 0})
+    completing.resource('plain://{n}', lambda n: n, name='plain')
+
+    completing_app = Pyjoyment.new()
+    completing_app.log.level = 'fatal'
+    completing_app.routes.any('/mcp').to(cb=completing.to_action())
+    tc = Pyjo.MCP.Test.new(completing_app)
+    tc.client.name = 'ExampleClient'
+    tc.discover_ok().status_is(200).result_is('/capabilities', {'prompts': {}, 'resources': {}, 'completions': {}})
+
+    prompt = {'type': 'ref/prompt', 'name': 'review'}
+    tc.complete_ok(prompt, 'language', 'p').status_is(200)
+    tc.result_is(
+        {
+            'resultType': 'complete',
+            'completion': {'values': ['Perl', 'Python', 'PHP'], 'total': 3, 'hasMore': False},
+            '_meta': SERVER_INFO,
+        }
+    )
+    tc.complete_ok(prompt, 'language', '').result_is('/completion/total', 4, 'empty value')
+    tc.complete_ok(prompt, 'language', 'Ruby').result_is('/completion/values', [], 'no match')
+    tc.complete_ok(prompt, 'code', 'x').result_is('/completion/values', [], 'argument without completions')
+    tc.complete_ok(prompt, 'unknown', 'x').result_is('/completion/values', [], 'unknown argument')
+    framework = {'type': 'ref/prompt', 'name': 'framework'}
+    tc.complete_ok(framework, 'framework', 'F', {'language': 'Python'})
+    tc.result_is('/completion/values', ['Flask', 'FastAPI', 'Python'], 'function with the other arguments')
+    tc.complete_ok(framework, 'framework', 'M').result_is('/completion/values', ['Mojolicious', ''], 'no arguments')
+
+    repo = {'type': 'ref/resource', 'uri': 'repo://{owner}/{repo}'}
+    tc.complete_ok(repo, 'owner', 'dex').result_is(
+        '/completion/values', ['ExampleClient-dex'], 'coroutine with context'
+    )
+    tc.complete_ok(repo, 'repo', 'x', {'owner': 'dex4er'}).result_is('/completion/values', ['a', 'b'], 'promise')
+    tc.complete_ok({'type': 'ref/resource', 'uri': 'many://{n}'}, 'n', '')
+    tc.result_is('/completion/total', 150).result_is('/completion/hasMore', True)
+    is_ok(len(tc.response['result']['completion']['values']), 100, 'at most 100 values')
+    tc.complete_ok({'type': 'ref/resource', 'uri': 'many://{n}'}, 'n', '14').result_is('/completion/total', 11)
+    tc.complete_ok({'type': 'ref/resource', 'uri': 'plain://{n}'}, 'n', '').result_is('/completion/values', [])
+    tc.complete_ok({'type': 'ref/resource', 'uri': 'broken://{n}'}, 'n', '').status_is(500)
+    tc.error_is({'code': -32603, 'message': 'Internal error'})
+
+    tc.complete_ok({'type': 'ref/prompt', 'name': 'summary'}, 'x', '').status_is(200)
+    tc.error_is({'code': -32602, 'message': 'Unknown prompt: summary'})
+    tc.complete_ok({'type': 'ref/resource', 'uri': 'repo://{owner}'}, 'owner', '')
+    tc.error_is({'code': -32602, 'message': 'Unknown resource template: repo://{owner}'})
+    tc.complete_ok({'type': 'ref/tool', 'name': 'add'}, 'a', '').error_is(
+        {'code': -32602, 'message': 'Invalid reference'}
+    )
+    tc.mcp_ok('completion/complete', {'ref': prompt, 'argument': {'name': 'language'}})
+    tc.error_is({'code': -32602, 'message': 'Invalid argument'})
+    tc.ua.close()
+
+    plain = Pyjo.MCP.Server.new()
+    plain.prompt('review', lambda code: code)
+    result = plain.dispatch_p({'jsonrpc': '2.0', 'id': 1, 'method': 'server/discover', 'params': {'_meta': META}})
+    results = []
+    result.then(results.append).wait()
+    is_deeply_ok(results[0]['result']['capabilities'], {'prompts': {}}, 'no completions')
 
 with subtest('Notifications'):
     # A server of its own, whose tools notify the client before their results

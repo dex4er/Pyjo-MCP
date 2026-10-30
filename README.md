@@ -150,13 +150,14 @@ are on [Read the Docs](https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/lat
 A server of the tools, the prompts and the resources of MCP over Streamable
 HTTP and stdio, with `server/discover`, `tools/list`, `tools/call`,
 `prompts/list`, `prompts/get`, `resources/list`, `resources/templates/list`,
-`resources/read` and `subscriptions/listen`, a client of them over Streamable
-HTTP, and assertions of tests with its requests. A tool sends its progress and
-its log messages before its result, and a subscription gets the changes of the
-lists and of the resources. A resource template is a URI Template of RFC 6570,
-whose URIs a client reads. A tool, a prompt and a resource ask the user, the
-language model or the roots of the client for input, in the rounds of a multi
-round-trip request.
+`resources/read`, `subscriptions/listen` and `completion/complete`, a client
+of them over Streamable HTTP, and assertions of tests with its requests. A tool
+sends its progress and its log messages before its result, and a subscription
+gets the changes of the lists and of the resources. A resource template is a
+URI Template of RFC 6570, whose URIs a client reads. A tool, a prompt and a
+resource ask the user, the language model or the roots of the client for
+input, in the rounds of a multi round-trip request, and the arguments of the
+prompts and the variables of the templates complete their values.
 
 ## License
 

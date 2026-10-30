@@ -80,12 +80,16 @@ async def library(server):
         resources = (await mcp.list_resources()).resources
         style = await mcp.read_resource('docs://style')
         limits = await mcp.read_resource('config://limits')
+        from mcp import types
+
+        ref = types.PromptReference(type='ref/prompt', name='review')
+        focus = (await mcp.complete(ref, {'name': 'focus', 'value': 's'})).completion.values
         try:
             await mcp.read_resource('docs://missing')
             missing = None
         except Exception as e:
             missing = str(e)
-        return prompts, prompt, resources, style, limits, missing
+        return prompts, prompt, resources, style, limits, missing, focus
 
 
 async def templates(server):
@@ -94,15 +98,19 @@ async def templates(server):
     async with Client(server) as mcp:
         listed = (await mcp.list_resource_templates()).resource_templates
         hello = await mcp.read_resource('file:///project/hello.py')
+        from mcp import types
+
+        ref = types.ResourceTemplateReference(type='ref/resource', uri='file:///project/{+path}')
+        paths = (await mcp.complete(ref, {'name': 'path', 'value': 'h'})).completion.values
         try:
             await mcp.read_resource('file:///project/../tutorial.rst')
             outside = None
         except Exception as e:
             outside = str(e)
-        return listed, hello, outside
+        return listed, hello, outside, paths
 
 
-def check_templates(listed, hello, outside):
+def check_templates(listed, hello, outside, paths):
     is_deeply_ok(
         [(template.uri_template, template.name, template.mime_type) for template in listed],
         [('file:///project/{+path}', 'project_file', 'text/x-python')],
@@ -111,6 +119,7 @@ def check_templates(listed, hello, outside):
     is_ok(str(hello.contents[0].uri), 'file:///project/hello.py', 'URI of the resource')
     like_ok(hello.contents[0].text, r'^from Pyjo.MCP.Server import Server', 'resources/read')
     is_ok(outside, 'Resource not found', 'outside of the directory')
+    is_deeply_ok(paths, ['hello.py', 'hello_test.py'], 'completion/complete')
 
 
 async def inputs(server):
@@ -178,7 +187,7 @@ def check_subscriptions(honored, added, events, notes, resources):
     is_deeply_ok([str(resource.uri) for resource in resources], ['notes://all', 'notes://1'], 'list read again')
 
 
-def check_library(prompts, prompt, resources, style, limits, missing):
+def check_library(prompts, prompt, resources, style, limits, missing, focus):
     is_deeply_ok([prompt.name for prompt in prompts], ['review'], 'prompts/list')
     is_deeply_ok(
         [(argument.name, argument.required) for argument in prompts[0].arguments],
@@ -195,6 +204,7 @@ def check_library(prompts, prompt, resources, style, limits, missing):
     like_ok(style.contents[0].text, r'^# Style guide', 'resources/read')
     is_ok(limits.contents[0].text, '{"line_length":120}', 'JSON')
     is_ok(missing, 'Resource not found', 'unknown resource')
+    is_deeply_ok(focus, ['style'], 'completion/complete')
 
 
 def check_progress(result, logs, steps):
