@@ -149,10 +149,11 @@ are on [Read the Docs](https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/lat
 
 A server of the tools, the prompts and the resources of MCP over Streamable
 HTTP and stdio, with `server/discover`, `tools/list`, `tools/call`,
-`prompts/list`, `prompts/get`, `resources/list` and `resources/read`, a client
-of them over Streamable HTTP, and assertions of tests with its requests. A tool
-sends its progress and its log messages before its result. The templates of
-resources and the subscriptions are to come.
+`prompts/list`, `prompts/get`, `resources/list`, `resources/read` and
+`subscriptions/listen`, a client of them over Streamable HTTP, and assertions
+of tests with its requests. A tool sends its progress and its log messages
+before its result, and a subscription gets the changes of the lists and of the
+resources. The templates of resources are to come.
 
 ## License
 

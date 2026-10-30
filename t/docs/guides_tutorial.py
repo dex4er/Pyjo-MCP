@@ -1,4 +1,5 @@
 import Pyjo.File
+import Pyjo.IOLoop
 import Pyjo.MCP.Test
 
 from Pyjo.Test import *
@@ -192,6 +193,31 @@ with subtest('Prompts and resources'):
     t.result_is('/messages/0/content/resource/uri', 'docs://style')
     t.result_is('/messages/1/content/text', 'Review this code for style:\nx = "1"')
     t.get_prompt_ok('review').status_is(200).error_message_is('Missing required argument: code')
+    t.ua.close()
+
+with subtest('Subscriptions'):
+    t = tutorial('notes')
+    t.discover_ok().status_is(200)
+    t.result_is(
+        '/capabilities', {'tools': {'listChanged': True}, 'resources': {'listChanged': True, 'subscribe': True}}
+    )
+    t.listen_ok({'resourcesListChanged': True, 'resourceSubscriptions': ['notes://all']})
+    t.notification_ok().notification_is('/method', 'notifications/subscriptions/acknowledged')
+    t.call_ok('add_note', text='Buy milk').status_is(200).structured_content_is(1)
+    t.notification_ok().notification_is('/method', 'notifications/resources/list_changed')
+    t.notification_ok().notification_is('/method', 'notifications/resources/updated')
+    t.notification_is('/params/uri', 'notes://all')
+    t.read_resource_ok('notes://all').status_is(200).text_content_is('* Buy milk\n')
+    t.list_resources_ok().status_is(200)
+    t.resource_is(
+        'notes://1', {'uri': 'notes://1', 'name': 'note_1', 'description': 'Note 1.', 'mimeType': 'text/plain'}
+    )
+    t.read_resource_ok('notes://1').status_is(200).text_content_is('Buy milk')
+
+    # The server ends the subscription when it stops gracefully
+    Pyjo.IOLoop.singleton.emit('finish')
+    t.notification_ok().notification_is('/result/resultType', 'complete')
+    t.sse_finished_ok()
     t.ua.close()
 
 with subtest('Security'):

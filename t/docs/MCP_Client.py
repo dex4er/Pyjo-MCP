@@ -313,6 +313,58 @@ with subtest('list_tools_p'):
     promise.then(results.append).wait()
     is_ok(len(results[0]['tools']), 3, 'result')
 
+
+def changes(message):
+    # The server, which changes after the acknowledgment, the resource three times, and then stops gracefully
+    if message['method'] == 'notifications/subscriptions/acknowledged':
+
+        def change(loop):
+            server.notify_list_changed('tools')
+            for _ in range(3):
+                server.notify_resource_updated('file:///project/README.md')
+            loop.emit('finish')
+
+        Pyjo.IOLoop.next_tick(change)
+
+
+with subtest('listen'):
+    with contextlib.redirect_stdout(io.StringIO()) as stdout:
+        client.on('notification', lambda client, message: changes(message))
+        result = client.listen({'toolsListChanged': True}, lambda message: print(message['method']))
+
+        def cb(message):
+            return None
+
+        result = client.listen({'resourceSubscriptions': ['file:///project/README.md']}, cb)
+    is_ok(
+        stdout.getvalue(),
+        'notifications/subscriptions/acknowledged\nnotifications/tools/list_changed\n',
+        'printed',
+    )
+    is_ok(result['resultType'], 'complete', 'result')
+
+    with contextlib.redirect_stdout(io.StringIO()) as stdout:
+
+        def updated(message):
+            if message['method'] == 'notifications/resources/updated':
+                updated.count += 1
+                print(f'Changed: {message["params"]["uri"]}')
+            return updated.count < 3
+
+        updated.count = 0
+        client.listen({'resourceSubscriptions': ['file:///project/README.md']}, updated)
+        print(client.read_resource('file:///project/README.md')['contents'][0]['text'])
+    is_ok(stdout.getvalue(), 'Changed: file:///project/README.md\n' * 3 + '# Project\n', 'printed')
+
+with subtest('listen_p'):
+    with contextlib.redirect_stdout(io.StringIO()) as stdout:
+        promise = client.listen_p({'toolsListChanged': True}, lambda message: print(message['method']))
+        results = []
+        promise.then(results.append).wait()
+    is_ok(results[0]['resultType'], 'complete', 'result')
+    like_ok(stdout.getvalue(), r'notifications/tools/list_changed', 'printed')
+    client.unsubscribe('notification')
+
 with subtest('read_resource'):
     result = client.read_resource('file:///project/README.md')
     is_ok(result['contents'][0]['text'], '# Project', 'result')

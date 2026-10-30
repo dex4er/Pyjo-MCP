@@ -61,6 +61,7 @@ import builtins
 import re
 import weakref
 
+from collections.abc import Callable
 from typing import Any, cast
 
 
@@ -416,6 +417,53 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
         """
         return self.send_request_p(self.build_request('tools/list')).then(_result)
 
+    def listen(self, notifications: dict[str, Any], cb: Callable[[dict[str, Any]], Any]) -> dict[str, Any] | None:
+        """::
+
+            result = client.listen({'toolsListChanged': True}, lambda message: print(message['method']))
+            result = client.listen({'resourceSubscriptions': ['file:///project/README.md']}, cb)
+
+        Open a subscription with ``subscriptions/listen``, for the
+        notifications that the filter asks for, ``toolsListChanged``,
+        ``promptsListChanged``, ``resourcesListChanged`` and
+        ``resourceSubscriptions``, and block until it ends. The function gets
+        every message of the subscription, starting with
+        ``notifications/subscriptions/acknowledged``, whose ``notifications``
+        are the ones that the server sends, and closes the subscription when it
+        returns ``False``. Return the result of the response with which the
+        server ends the subscription, or ``None`` for one that the function
+        closed, or raise the :class:`Pyjo.JSON.RPC.Error` of the response, or
+        a :mod:`Pyjo.Exception` for a connection that closes without one. ::
+
+            # Until the third change of the resource
+            def updated(message):
+                if message['method'] == 'notifications/resources/updated':
+                    updated.count += 1
+                    print(f'Changed: {message["params"]["uri"]}')
+                return updated.count < 3
+
+            updated.count = 0
+            client.listen({'resourceSubscriptions': ['file:///project/README.md']}, updated)
+            print(client.read_resource('file:///project/README.md')['contents'][0]['text'])
+        """
+        tx, finished = self._listen(notifications, cb)
+        return finished(self.ua.start(tx))
+
+    def listen_p(self, notifications: dict[str, Any], cb: Callable[[dict[str, Any]], Any]) -> Pyjo.Promise.object:
+        """::
+
+            promise = client.listen_p({'toolsListChanged': True}, lambda message: print(message['method']))
+
+        Same as :meth:`listen`, but returns a :mod:`Pyjo.Promise` of the
+        result instead of blocking.
+        """
+        tx, finished = self._listen(notifications, cb)
+
+        def failed(e: Any) -> Any:
+            return finished(tx)
+
+        return self.ua.start_p(tx).then(finished, failed)
+
     def read_resource(self, uri: str) -> dict[str, Any]:
         """::
 
@@ -499,8 +547,8 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
 
         return start().then(renegotiate)
 
-    # TODO: listen of MCP::Client, and the options input_responses and request_state of its call_tool and get_prompt,
-    # with subscriptions/listen and the multi round-trip requests of the server
+    # TODO: the options input_responses and request_state of call_tool and get_prompt of MCP::Client, with the multi
+    # round-trip requests of the server
 
     def _call_tool(self, name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
         return self.build_request('tools/call', {'name': name, 'arguments': arguments or {}})
@@ -526,6 +574,30 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
                 if (value := _value(params.get('arguments'), path)) is not None:
                     headers[f'Mcp-Param-{name}'] = _encode(value)
         return headers
+
+    def _listen(
+        self, notifications: dict[str, Any], cb: Callable[[dict[str, Any]], Any]
+    ) -> tuple[Pyjo.Transaction.HTTP.object, Callable[..., dict[str, Any] | None]]:
+        # The transaction of a subscription, and the result of the transaction when it is done
+        request = self.build_request('subscriptions/listen', {'notifications': notifications})
+        tx = self.build_tx(request)
+        closed = False
+
+        # The messages of the subscription, which the function closes, but its response
+        def sse(content: Any, event: Any = None) -> None:
+            nonlocal closed
+            if closed or not event or (message := _message(event)) is None or _is_response(message, request['id']):
+                return
+            if cb(message) is False:
+                closed = True
+                tx.res.error = {'message': 'Interrupted'}
+
+        tx.res.content.on('sse', sse)
+
+        def finished(tx: Pyjo.Transaction.HTTP.object) -> dict[str, Any] | None:
+            return None if closed else _result(self.read_response(tx, request))
+
+        return tx, finished
 
     def _renegotiate(self, request: dict[str, Any], response: Any) -> bool:
         # The newest revision that both support, for one more request, after the error of an unsupported one

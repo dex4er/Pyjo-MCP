@@ -212,6 +212,20 @@ with subtest('list_tools_ok'):
     t = t.list_tools_ok()
     t.status_is(200).tool_exists('greet')
 
+with subtest('listen_ok'):
+    t = t.listen_ok({'toolsListChanged': True})
+    t.notification_ok().notification_is('/params/notifications', {'toolsListChanged': True})
+    t.sse_finish_ok()
+    t = t.listen_ok({'resourceSubscriptions': ['file:///project/README.md']})
+    t.notification_ok().notification_is('/params/notifications/resourceSubscriptions', ['file:///project/README.md'])
+    t.sse_finish_ok()
+
+    t.listen_ok({'toolsListChanged': True})
+    t.notification_ok().notification_is('/method', 'notifications/subscriptions/acknowledged')
+    server.notify_list_changed('tools')
+    t.notification_ok().notification_is('/method', 'notifications/tools/list_changed')
+    t.sse_finish_ok()
+
 with subtest('mcp_ok'):
     t = t.mcp_ok('tools/list')
     t.status_is(200)
@@ -225,6 +239,29 @@ with subtest('mcp_ok'):
     # A revision of the specification that the server does not support
     t.mcp_ok('tools/list', meta={'io.modelcontextprotocol/protocolVersion': '1900-01-01'}).status_is(400)
     t.error_code_is(-32022)
+
+with subtest('notification_is'):
+    t.listen_ok({'toolsListChanged': True, 'resourceSubscriptions': ['file:///project/README.md']}).notification_ok()
+    server.notify_list_changed('tools')
+    server.notify_resource_updated('file:///project/README.md')
+    t.notification_ok()
+    meta = {'io.modelcontextprotocol/subscriptionId': t.client._id}
+    # The _meta of the message is left out of the example
+    with recording(t) as calls:
+        t = t.notification_is({'jsonrpc': '2.0', 'method': 'notifications/tools/list_changed', 'params': {}})
+    is_ok(calls[0][1]['method'], 'notifications/tools/list_changed', 'whole message')
+    t.notification_is({'jsonrpc': '2.0', 'method': 'notifications/tools/list_changed', 'params': {'_meta': meta}})
+    t.notification_ok()
+    t = t.notification_is('/method', 'notifications/resources/updated')
+    t = t.notification_is('/params/uri', 'file:///project/README.md', 'right resource')
+    t.sse_finish_ok()
+
+with subtest('notification_ok'):
+    t.listen_ok({'toolsListChanged': True})
+    t = t.notification_ok()
+    server.notify_list_changed('tools')
+    t = t.notification_ok('got a notification')
+    t.sse_finish_ok()
 
 with subtest('prompt_exists'):
     t.list_prompts_ok()
