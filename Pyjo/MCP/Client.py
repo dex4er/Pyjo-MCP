@@ -321,6 +321,75 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
         """
         return self.send_request_p(self.build_request('server/discover')).then(_result)
 
+    def get_prompt(self, name: str, arguments: dict[str, Any] | None = None, /) -> dict[str, Any]:
+        """::
+
+            result = client.get_prompt('summary')
+            result = client.get_prompt('review', {'code': 'x = 1'})
+
+        Get the messages of a prompt with its arguments, whose values are
+        strings, and return its result, or raise the
+        :class:`Pyjo.JSON.RPC.Error` of the response. ::
+
+            for message in client.get_prompt('review', {'code': 'x = 1'})['messages']:
+                print(message['role'], message['content'].get('text'))
+        """
+        return _result(self.send_request(self._get_prompt(name, arguments)))
+
+    def get_prompt_p(self, name: str, arguments: dict[str, Any] | None = None, /) -> Pyjo.Promise.object:
+        """::
+
+            promise = client.get_prompt_p('review', {'code': 'x = 1'})
+
+        Same as :meth:`get_prompt`, but returns a :mod:`Pyjo.Promise` of the
+        result instead of blocking.
+        """
+        return self.send_request_p(self._get_prompt(name, arguments)).then(_result)
+
+    def list_prompts(self) -> dict[str, Any]:
+        """::
+
+            result = client.list_prompts()
+
+        List the prompts of the server with ``prompts/list``. ::
+
+            for prompt in client.list_prompts()['prompts']:
+                print(prompt['name'], [argument['name'] for argument in prompt.get('arguments', [])])
+        """
+        return _result(self.send_request(self.build_request('prompts/list')))
+
+    def list_prompts_p(self) -> Pyjo.Promise.object:
+        """::
+
+            promise = client.list_prompts_p()
+
+        Same as :meth:`list_prompts`, but returns a :mod:`Pyjo.Promise` of the
+        result instead of blocking.
+        """
+        return self.send_request_p(self.build_request('prompts/list')).then(_result)
+
+    def list_resources(self) -> dict[str, Any]:
+        """::
+
+            result = client.list_resources()
+
+        List the resources of the server with ``resources/list``. ::
+
+            for resource in client.list_resources()['resources']:
+                print(resource['uri'], resource.get('mimeType'))
+        """
+        return _result(self.send_request(self.build_request('resources/list')))
+
+    def list_resources_p(self) -> Pyjo.Promise.object:
+        """::
+
+            promise = client.list_resources_p()
+
+        Same as :meth:`list_resources`, but returns a :mod:`Pyjo.Promise` of
+        the result instead of blocking.
+        """
+        return self.send_request_p(self.build_request('resources/list')).then(_result)
+
     def list_tools(self) -> dict[str, Any]:
         """::
 
@@ -346,6 +415,30 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
         result instead of blocking.
         """
         return self.send_request_p(self.build_request('tools/list')).then(_result)
+
+    def read_resource(self, uri: str) -> dict[str, Any]:
+        """::
+
+            result = client.read_resource('file:///project/README.md')
+
+        Read the contents of a resource with ``resources/read`` and return its
+        result, or raise the :class:`Pyjo.JSON.RPC.Error` of the response, as
+        the one of a resource that does not exist. ::
+
+            for contents in client.read_resource('file:///project/README.md')['contents']:
+                print(contents.get('text'))
+        """
+        return _result(self.send_request(self.build_request('resources/read', {'uri': uri})))
+
+    def read_resource_p(self, uri: str) -> Pyjo.Promise.object:
+        """::
+
+            promise = client.read_resource_p('file:///project/README.md')
+
+        Same as :meth:`read_resource`, but returns a :mod:`Pyjo.Promise` of
+        the result instead of blocking.
+        """
+        return self.send_request_p(self.build_request('resources/read', {'uri': uri})).then(_result)
 
     def read_response(self, tx: Pyjo.Transaction.HTTP.object, request: dict[str, Any]) -> dict[str, Any] | None:
         """::
@@ -406,12 +499,14 @@ class Pyjo_MCP_Client(Pyjo.EventEmitter.object):
 
         return start().then(renegotiate)
 
-    # TODO: get_prompt, list_prompts, list_resources, read_resource and listen of MCP::Client, and the options
-    # input_responses and request_state of its call_tool, with the prompts, the resources, subscriptions/listen and the
-    # multi round-trip requests of the server
+    # TODO: listen of MCP::Client, and the options input_responses and request_state of its call_tool and get_prompt,
+    # with subscriptions/listen and the multi round-trip requests of the server
 
     def _call_tool(self, name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
         return self.build_request('tools/call', {'name': name, 'arguments': arguments or {}})
+
+    def _get_prompt(self, name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
+        return self.build_request('prompts/get', {'name': name, 'arguments': arguments or {}})
 
     def _headers(self, request: dict[str, Any]) -> dict[str, Any]:
         # The headers of MCP, which mirror the body, as the server checks them

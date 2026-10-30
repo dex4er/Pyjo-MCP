@@ -309,6 +309,139 @@ with subtest('Custom headers from tool parameters'):
     t.mcp_ok('tools/call', {'name': 'execute_sql', 'arguments': arguments}, headers={**headers})
     t.status_is(400).json_is('/error/message', 'Header mismatch: Unexpected Mcp-Param-Limit header')
 
+with subtest('Prompts and resources'):
+    # A server of its own, with the examples of the specification
+    library = Pyjo.MCP.Server.new(name='ExampleServer', version='1.0.0')
+
+    @library.prompt(title='Request Code Review')
+    def code_review(code: str) -> str:
+        """Asks the LLM to analyze code quality and suggest improvements.
+
+        :param code: The code to review
+        """
+        return f'Please review this Python code:\n{code}'
+
+    @library.prompt(context=True)
+    def greeting(context, name: str = 'World') -> list:
+        """Greet with the name of the client."""
+        return [
+            {'role': 'user', 'content': {'type': 'text', 'text': f'Hello, {name}!'}},
+            {'role': 'assistant', 'content': {'type': 'text', 'text': f'Hello from {context.client_info.get("name")}'}},
+        ]
+
+    @library.prompt
+    def broken_prompt() -> str:
+        """Fail."""
+        raise ValueError('Secret')
+
+    @library.resource(
+        'file:///project/src/main.rs', title='Rust Software Application Main File', mime_type='text/x-rust'
+    )
+    def main_rs() -> str:
+        """Primary application entry point."""
+        return 'fn main() {\n    println!("Hello world!");\n}'
+
+    library.resource('file:///project/logo.png', lambda: b'\x89PNG', name='logo', mime_type='image/png')
+
+    @library.resource('config://async')
+    async def later_config() -> str:
+        await Pyjo.Promise.timer(0.01)
+        return 'later'
+
+    library_app = Pyjoyment.new()
+    library_app.log.level = 'fatal'
+    library_app.routes.any('/mcp').to(cb=library.to_action())
+    tl = Pyjo.MCP.Test.new(library_app)
+    tl.client.name = 'ExampleClient'
+
+    tl.discover_ok().status_is(200).result_is('/capabilities', {'prompts': {}, 'resources': {}})
+
+    tl.list_prompts_ok().status_is(200)
+    tl.result_is('/resultType', 'complete').result_is('/ttlMs', 0).result_is('/cacheScope', 'public')
+    tl.result_is('/_meta', SERVER_INFO)
+    tl.result_is(
+        '/prompts/0',
+        {
+            'name': 'code_review',
+            'title': 'Request Code Review',
+            'description': 'Asks the LLM to analyze code quality and suggest improvements.',
+            'arguments': [{'name': 'code', 'description': 'The code to review', 'required': True}],
+        },
+    )
+    tl.prompt_is('greeting', '/arguments', [{'name': 'name', 'required': False}])
+    tl.mcp_ok('prompts/list', {'cursor': 'next-page-cursor'}).status_is(200)
+    tl.error_is({'code': -32602, 'message': 'Invalid cursor'})
+
+    tl.get_prompt_ok('code_review', {'code': "def hello():\n    print('world')"}).status_is(200)
+    tl.result_is(
+        {
+            'resultType': 'complete',
+            'messages': [
+                {
+                    'role': 'user',
+                    'content': {
+                        'type': 'text',
+                        'text': "Please review this Python code:\ndef hello():\n    print('world')",
+                    },
+                }
+            ],
+            '_meta': SERVER_INFO,
+        }
+    )
+    tl.get_prompt_ok('greeting', {'name': 'Pyjo'}).status_is(200)
+    tl.result_is('/messages/1/content/text', 'Hello from ExampleClient')
+    tl.get_prompt_ok('greeting').result_is('/messages/0/content/text', 'Hello, World!')
+    tl.get_prompt_ok('code_review').status_is(200)
+    tl.error_is({'code': -32602, 'message': 'Missing required argument: code'})
+    tl.get_prompt_ok('unknown').status_is(200).error_is({'code': -32602, 'message': 'Unknown prompt: unknown'})
+    tl.mcp_ok('prompts/get', {'name': 'code_review', 'arguments': ['x']}).status_is(200)
+    tl.error_is({'code': -32602, 'message': 'Invalid arguments'})
+    tl.mcp_ok('prompts/get', {'name': 'code_review', 'arguments': {}}, headers={'Mcp-Name': 'foo'}).status_is(400)
+    tl.error_message_is("Header mismatch: Mcp-Name header value 'foo' does not match body value 'code_review'")
+    tl.get_prompt_ok('broken_prompt').status_is(500).error_is({'code': -32603, 'message': 'Internal error'})
+
+    tl.list_resources_ok().status_is(200)
+    tl.result_is('/ttlMs', 0).result_is('/_meta', SERVER_INFO)
+    tl.result_is(
+        '/resources/0',
+        {
+            'uri': 'file:///project/src/main.rs',
+            'name': 'main_rs',
+            'title': 'Rust Software Application Main File',
+            'description': 'Primary application entry point.',
+            'mimeType': 'text/x-rust',
+        },
+    )
+    logo = {'uri': 'file:///project/logo.png', 'name': 'logo', 'mimeType': 'image/png'}
+    tl.resource_is('file:///project/logo.png', logo)
+    tl.mcp_ok('resources/list', {'cursor': 'next-page-cursor'}).status_is(200)
+    tl.error_is({'code': -32602, 'message': 'Invalid cursor'})
+
+    tl.read_resource_ok('file:///project/src/main.rs').status_is(200)
+    tl.result_is(
+        {
+            'resultType': 'complete',
+            'contents': [
+                {
+                    'uri': 'file:///project/src/main.rs',
+                    'mimeType': 'text/x-rust',
+                    'text': 'fn main() {\n    println!("Hello world!");\n}',
+                }
+            ],
+            'ttlMs': 0,
+            'cacheScope': 'public',
+            '_meta': SERVER_INFO,
+        }
+    )
+    blob = base64.b64encode(b'\x89PNG').decode()
+    tl.read_resource_ok('file:///project/logo.png').result_is('/contents/0/blob', blob)
+    tl.read_resource_ok('config://async').result_is('/contents/0/text', 'later')
+    tl.read_resource_ok('file:///nonexistent.txt').status_is(200)
+    tl.error_is({'code': -32602, 'message': 'Resource not found', 'data': {'uri': 'file:///nonexistent.txt'}})
+    tl.mcp_ok('resources/read', {'uri': 'file:///project/logo.png'}, headers={'Mcp-Name': None}).status_is(400)
+    tl.error_message_is('Header mismatch: Missing Mcp-Name header')
+    tl.ua.close()
+
 with subtest('Notifications'):
     # A server of its own, whose tools notify the client before their results
     notifying = Pyjo.MCP.Server.new(name='ExampleServer')

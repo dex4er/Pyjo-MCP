@@ -12,6 +12,16 @@ Pyjo.MCP.Server - Server of MCP
         \"\"\"Add two numbers.\"\"\"
         return a + b
 
+    @server.prompt
+    def explain(expression: str) -> str:
+        \"\"\"Explain an arithmetic expression step by step.\"\"\"
+        return f'Explain step by step how to compute {expression}.'
+
+    @server.resource('calculator://precision', mime_type='application/json')
+    def precision() -> dict:
+        \"\"\"The precision of the numbers of the calculator.\"\"\"
+        return {'digits': 15}
+
     # Or import the module, as in Google Python Style Guide
 
     import Pyjo.MCP.Server
@@ -33,10 +43,12 @@ Pyjo.MCP.Server - Server of MCP
 :mod:`Pyjo.MCP.Server` is a server of the Model Context Protocol, of the
 revision :data:`Pyjo.MCP.PROTOCOL_VERSION` of the specification, with the
 methods ``server/discover``, ``tools/list`` and ``tools/call``, whose tools are
-:mod:`Pyjo.MCP.Tool` objects. The protocol is stateless: each request carries
-its revision and the capabilities of its client in its ``_meta``, which the
-server checks, and a result carries the name and the version of the server in
-its own ``_meta``.
+:mod:`Pyjo.MCP.Tool` objects, ``prompts/list`` and ``prompts/get``, whose
+prompts are :mod:`Pyjo.MCP.Prompt` objects, and ``resources/list`` and
+``resources/read``, whose resources are :mod:`Pyjo.MCP.Resource` objects. The
+protocol is stateless: each request carries its revision and the capabilities
+of its client in its ``_meta``, which the server checks, and a result carries
+the name and the version of the server in its own ``_meta``.
 
 The requests come over Streamable HTTP, the transport of
 :meth:`~Pyjo_MCP_Server.to_action`, an action of a route of :mod:`Pyjoyment`,
@@ -57,8 +69,8 @@ error. :meth:`~Pyjo_MCP_Server.serve` serves any other stream of messages, and
 See also
 --------
 
-:mod:`Pyjo.MCP.Tool`, :mod:`Pyjo.JSON.RPC`, :mod:`Pyjoyment.Plugin.AllowedHosts`,
-:mod:`Pyjo.MCP`.
+:mod:`Pyjo.MCP.Tool`, :mod:`Pyjo.MCP.Prompt`, :mod:`Pyjo.MCP.Resource`,
+:mod:`Pyjo.JSON.RPC`, :mod:`Pyjoyment.Plugin.AllowedHosts`, :mod:`Pyjo.MCP`.
 
 Classes
 -------
@@ -76,7 +88,7 @@ import Pyjo.Server.Stdio
 # The package of the distribution, imported relatively, as pyright takes the regular package Pyjo of Pyjoyment, which
 # hides the namespace that extend_path keeps open
 from .. import MCP
-from . import Tool
+from . import Prompt, Resource, Tool
 
 import base64
 import binascii
@@ -391,6 +403,24 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         The name of the server, ``Pyjo.MCP`` by default.
         """
 
+        self.prompts: list[Prompt.object] = []
+        """::
+
+            prompts = server.prompts
+
+        The :mod:`Pyjo.MCP.Prompt` objects of the server, in the order of
+        ``prompts/list``.
+        """
+
+        self.resources: list[Resource.object] = []
+        """::
+
+            resources = server.resources
+
+        The :mod:`Pyjo.MCP.Resource` objects of the server, in the order of
+        ``resources/list``.
+        """
+
         self.tools: list[Tool.object] = []
         """::
 
@@ -413,6 +443,12 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         rpc.method('server/discover', self._discover, context=True)
         rpc.method('tools/list', self._tools_list, context=True)
         rpc.method('tools/call', self._tools_call, context=True)
+        rpc.method('prompts/list', self._prompts_list, context=True)
+        rpc.method('prompts/get', self._prompts_get, context=True)
+        rpc.method('resources/list', self._resources_list, context=True)
+        rpc.method('resources/read', self._resources_read, context=True)
+        # TODO: resources/templates/list, with the URI templates of RFC 6570, and the subscriptions to a resource, with
+        # subscriptions/listen
 
         def exception(rpc: Pyjo.JSON.RPC.object, e: Exception, context: Any) -> None:
             self._exception(e, context)
@@ -441,6 +477,79 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         if isinstance(message, list) or ('id' in _object(message) and _object(message)['id'] is None):
             return Pyjo.Promise.resolve(_error(None, Pyjo.JSON.RPC.INVALID_REQUEST, 'Invalid Request'))
         return self._rpc.dispatch_p(message, context)
+
+    @overload
+    def prompt[F: Callable[..., Any]](self, name: F, cb: None = None) -> F: ...
+
+    @overload
+    def prompt[F: Callable[..., Any]](
+        self, name: str | None = None, cb: None = None, **options: Any
+    ) -> Callable[[F], F]: ...
+
+    @overload
+    def prompt[F: Callable[..., Any]](self, name: str, cb: F, **options: Any) -> F: ...
+
+    def prompt(
+        self, name: str | Callable[..., Any] | None = None, cb: Callable[..., Any] | None = None, **options: Any
+    ) -> Any:
+        """::
+
+            cb = server.prompt('review', lambda code: f'Review this code:\\n{code}')
+            cb = server.prompt('review', lambda context, code: ..., context=True)
+
+        Add a prompt, a :mod:`Pyjo.MCP.Prompt` of the function with the options
+        of its constructor, and return the function. Without a function, it is
+        a decorator, with the name of the prompt or of the function. ::
+
+            @server.prompt
+            def review(code: str, language: str = 'Python') -> str:
+                \"\"\"Review a piece of code.\"\"\"
+                return f'Review this {language} code:\\n{code}'
+
+            @server.prompt('code_review', title='Code review')
+            def code_review(code: str) -> str:
+                \"\"\"Review a piece of code.\"\"\"
+                return f'Review this code:\\n{code}'
+        """
+        if callable(name):
+            return self._prompt(None, name, options)
+        if cb is None:
+            title = name
+
+            def decorator(cb: Callable[..., Any]) -> Callable[..., Any]:
+                return self._prompt(title, cb, options)
+
+            return decorator
+        return self._prompt(name, cb, options)
+
+    @overload
+    def resource[F: Callable[..., Any]](self, uri: str, cb: None = None, **options: Any) -> Callable[[F], F]: ...
+
+    @overload
+    def resource[F: Callable[..., Any]](self, uri: str, cb: F, **options: Any) -> F: ...
+
+    def resource(self, uri: str, cb: Callable[..., Any] | None = None, **options: Any) -> Any:
+        """::
+
+            cb = server.resource('file:///project/README.md', lambda: '# Project', mime_type='text/markdown')
+            cb = server.resource('config://app', lambda context: ..., context=True)
+
+        Add a resource of the URI, a :mod:`Pyjo.MCP.Resource` of the function
+        with the options of its constructor, and return the function. Without
+        a function, it is a decorator. ::
+
+            @server.resource('file:///project/README.md', mime_type='text/markdown')
+            def readme() -> str:
+                \"\"\"The documentation of the project.\"\"\"
+                return '# Project'
+        """
+        if cb is None:
+
+            def decorator(cb: Callable[..., Any]) -> Callable[..., Any]:
+                return self._resource(uri, cb, options)
+
+            return decorator
+        return self._resource(uri, cb, options)
 
     def serve(self, peer: Any, log: Pyjo.Log.object | None = None) -> Pyjo.JSON.RPC.Client:
         """::
@@ -629,11 +738,20 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
 
         return hook
 
+    def _cursor(self, params: dict[str, Any]) -> None:
+        # A list of one page, whose cursor no request has
+        if params.get('cursor') is not None:
+            raise Pyjo.JSON.RPC.Error.new(Pyjo.JSON.RPC.INVALID_PARAMS, 'Invalid cursor')
+
     def _discover(self, context: Context, **params: Any) -> dict[str, Any]:
         self._meta(context, params)
         capabilities: dict[str, Any] = {}
         if self.tools:
             capabilities['tools'] = {}
+        if self.prompts:
+            capabilities['prompts'] = {}
+        if self.resources:
+            capabilities['resources'] = {}
         result: dict[str, Any] = {'supportedVersions': list(MCP.SUPPORTED_VERSIONS), 'capabilities': capabilities}
         if self.instructions is not None:
             result['instructions'] = self.instructions
@@ -724,6 +842,45 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         result['_meta'] = {**meta, MCP.META_SERVER_INFO: {'name': self.name, 'version': self.version}}
         return result
 
+    def _prompt(self, name: str | None, cb: Callable[..., Any], options: dict[str, Any]) -> Callable[..., Any]:
+        self.prompts.append(Prompt.new(cb, name=name, **options))
+        return cb
+
+    def _prompts_get(self, context: Context, **params: Any) -> Pyjo.Promise.object:
+        self._meta(context, params)
+        name = params.get('name')
+        if (prompt := next((prompt for prompt in self.prompts if prompt.name == name), None)) is None:
+            raise Pyjo.JSON.RPC.Error.new(Pyjo.JSON.RPC.INVALID_PARAMS, f'Unknown prompt: {name}')
+        arguments = params.get('arguments', {})
+        if not isinstance(arguments, dict):
+            raise Pyjo.JSON.RPC.Error.new(Pyjo.JSON.RPC.INVALID_PARAMS, 'Invalid arguments')
+        return prompt.get_p(cast(dict[str, Any], arguments), context).then(self._result)
+
+    def _prompts_list(self, context: Context, **params: Any) -> dict[str, Any]:
+        self._meta(context, params)
+        self._cursor(params)
+        return self._result({'prompts': [prompt.__json__() for prompt in self.prompts]}, cacheable=True)
+
+    def _resource(self, uri: str, cb: Callable[..., Any], options: dict[str, Any]) -> Callable[..., Any]:
+        self.resources.append(Resource.new(uri, cb, **options))
+        return cb
+
+    def _resources_list(self, context: Context, **params: Any) -> dict[str, Any]:
+        self._meta(context, params)
+        self._cursor(params)
+        return self._result({'resources': [resource.__json__() for resource in self.resources]}, cacheable=True)
+
+    def _resources_read(self, context: Context, **params: Any) -> Pyjo.Promise.object:
+        self._meta(context, params)
+        uri = params.get('uri')
+        if (resource := next((resource for resource in self.resources if resource.uri == uri), None)) is None:
+            raise Pyjo.JSON.RPC.Error.new(Pyjo.JSON.RPC.INVALID_PARAMS, 'Resource not found', {'uri': uri})
+
+        def result(value: dict[str, Any]) -> dict[str, Any]:
+            return self._result(value, cacheable=True)
+
+        return resource.read_p(context).then(result)
+
     def _tool(self, name: str | None, cb: Callable[..., Any], options: dict[str, Any]) -> Callable[..., Any]:
         self.tools.append(Tool.new(cb, name=name, **options))
         return cb
@@ -740,9 +897,7 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
 
     def _tools_list(self, context: Context, **params: Any) -> dict[str, Any]:
         self._meta(context, params)
-        # A list of one page, whose cursor no request has
-        if params.get('cursor') is not None:
-            raise Pyjo.JSON.RPC.Error.new(Pyjo.JSON.RPC.INVALID_PARAMS, 'Invalid cursor')
+        self._cursor(params)
         return self._result({'tools': [tool.__json__() for tool in self.tools]}, cacheable=True)
 
 

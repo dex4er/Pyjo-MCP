@@ -13,7 +13,8 @@ import contextlib
 import io
 
 
-# The server of the examples, the calculator of the synopsis of Pyjo.MCP.Server with greet and divide
+# The server of the examples, the calculator of the synopsis of Pyjo.MCP.Server with greet and divide, prompts and a
+# resource
 server = Pyjo.MCP.Server.new(name='calculator', version='1.0.0')
 
 
@@ -35,6 +36,24 @@ def divide(a: float, b: float) -> float:
     if b == 0:
         raise Pyjo.MCP.Tool.Error.new('Division by zero')
     return a / b
+
+
+@server.prompt
+def review(code: str, language: str = 'Python') -> str:
+    """Review a piece of code."""
+    return f'Review this {language} code:\n{code}'
+
+
+@server.prompt
+def summary() -> str:
+    """Summarize the conversation."""
+    return 'Summarize the conversation so far.'
+
+
+@server.resource('file:///project/README.md', mime_type='text/markdown')
+def readme() -> str:
+    """The documentation of the project."""
+    return '# Project'
 
 
 app = Pyjoyment.new()
@@ -226,7 +245,54 @@ with subtest('discover_p'):
     promise = client.discover_p()
     results = []
     promise.then(results.append).wait()
-    is_deeply_ok(results[0]['capabilities'], {'tools': {}}, 'result')
+    is_deeply_ok(results[0]['capabilities'], {'tools': {}, 'prompts': {}, 'resources': {}}, 'result')
+
+with subtest('get_prompt'):
+    result = client.get_prompt('summary')
+    is_ok(result['messages'][0]['content']['text'], 'Summarize the conversation so far.', 'without arguments')
+    result = client.get_prompt('review', {'code': 'x = 1'})
+    is_ok(result['messages'][0]['content']['text'], 'Review this Python code:\nx = 1', 'result')
+
+    with contextlib.redirect_stdout(io.StringIO()) as stdout:
+        for message in client.get_prompt('review', {'code': 'x = 1'})['messages']:
+            print(message['role'], message['content'].get('text'))
+    is_ok(stdout.getvalue(), 'user Review this Python code:\nx = 1\n', 'printed')
+
+with subtest('get_prompt_p'):
+    promise = client.get_prompt_p('review', {'code': 'x = 1'})
+    results = []
+    promise.then(results.append).wait()
+    is_ok(results[0]['messages'][0]['role'], 'user', 'result')
+
+with subtest('list_prompts'):
+    result = client.list_prompts()
+    is_ok(len(result['prompts']), 2, 'result')
+
+    with contextlib.redirect_stdout(io.StringIO()) as stdout:
+        for prompt in client.list_prompts()['prompts']:
+            print(prompt['name'], [argument['name'] for argument in prompt.get('arguments', [])])
+    is_ok(stdout.getvalue(), "review ['code', 'language']\nsummary []\n", 'printed')
+
+with subtest('list_prompts_p'):
+    promise = client.list_prompts_p()
+    results = []
+    promise.then(results.append).wait()
+    is_ok(len(results[0]['prompts']), 2, 'result')
+
+with subtest('list_resources'):
+    result = client.list_resources()
+    is_ok(len(result['resources']), 1, 'result')
+
+    with contextlib.redirect_stdout(io.StringIO()) as stdout:
+        for resource in client.list_resources()['resources']:
+            print(resource['uri'], resource.get('mimeType'))
+    is_ok(stdout.getvalue(), 'file:///project/README.md text/markdown\n', 'printed')
+
+with subtest('list_resources_p'):
+    promise = client.list_resources_p()
+    results = []
+    promise.then(results.append).wait()
+    is_ok(len(results[0]['resources']), 1, 'result')
 
 with subtest('list_tools'):
     result = client.list_tools()
@@ -246,6 +312,21 @@ with subtest('list_tools_p'):
     results = []
     promise.then(results.append).wait()
     is_ok(len(results[0]['tools']), 3, 'result')
+
+with subtest('read_resource'):
+    result = client.read_resource('file:///project/README.md')
+    is_ok(result['contents'][0]['text'], '# Project', 'result')
+
+    with contextlib.redirect_stdout(io.StringIO()) as stdout:
+        for contents in client.read_resource('file:///project/README.md')['contents']:
+            print(contents.get('text'))
+    is_ok(stdout.getvalue(), '# Project\n', 'printed')
+
+with subtest('read_resource_p'):
+    promise = client.read_resource_p('file:///project/README.md')
+    results = []
+    promise.then(results.append).wait()
+    is_ok(results[0]['contents'][0]['mimeType'], 'text/markdown', 'result')
 
 with subtest('read_response'):
     request = client.build_request('tools/list')
