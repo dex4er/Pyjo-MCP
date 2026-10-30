@@ -84,6 +84,20 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
         self._client: Client.object | None = None
         super().__init__(app, config)
 
+        self.notifications: list[dict[str, Any]] = []
+        """::
+
+            notifications = t.notifications
+
+        The notifications of JSON-RPC that the server sent before the
+        response of the last request, in its stream of events, as the
+        progress of a tool. ::
+
+            params = {'name': 'count', 'arguments': {'to': 3}}
+            t.mcp_ok('tools/call', params, meta={'progressToken': 'count-1'}).status_is(200)
+            is_ok(t.notifications[0]['method'], 'notifications/progress', 'progress')
+        """
+
         self.response: dict[str, Any] | None = None
         """::
 
@@ -270,11 +284,21 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
             else:
                 tx.req.headers.header(name, value)
 
-        self.request_ok(tx)
+        notifications: list[dict[str, Any]] = []
+
+        def notification(client: Client.object, message: dict[str, Any]) -> None:
+            notifications.append(message)
+
+        client.on('notification', notification)
         try:
-            self.response = client.read_response(tx, request)
-        except Pyjo.Exception.object:
-            self.response = None
+            self.request_ok(tx)
+            try:
+                self.response = client.read_response(tx, request)
+            except Pyjo.Exception.object:
+                self.response = None
+        finally:
+            client.unsubscribe('notification', notification)
+        self.notifications = notifications
         return self
 
     def response_is(self, *args: Any) -> Self:

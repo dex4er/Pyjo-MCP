@@ -132,6 +132,25 @@ with subtest('Context'):
     t.client.headers = {'User-Agent': 'Test'}
     t.call_ok('whoami').status_is(200).text_content_is('ExampleClient 2026-07-28, with Test')
 
+with subtest('Progress'):
+    t = tutorial('progress')
+    meta = {'progressToken': 'count-1', 'io.modelcontextprotocol/logLevel': 'info'}
+    t.mcp_ok('tools/call', {'name': 'count', 'arguments': {'to': 3}}, meta=meta).status_is(200)
+    t.header_is('Content-Type', 'text/event-stream').structured_content_is(3)
+    is_deeply_ok(
+        [message['params'] for message in t.notifications],
+        [
+            {'level': 'info', 'data': 'Counting to 3'},
+            {'progressToken': 'count-1', 'progress': 1, 'total': 3, 'message': 'Counted to 1'},
+            {'progressToken': 'count-1', 'progress': 2, 'total': 3, 'message': 'Counted to 2'},
+            {'progressToken': 'count-1', 'progress': 3, 'total': 3, 'message': 'Counted to 3'},
+        ],
+        'log and progress before the result',
+    )
+    t.call_ok('count', to=2).status_is(200).header_like('Content-Type', re.compile(r'^application/json'))
+    t.structured_content_is(2)
+    is_deeply_ok(t.notifications, [], 'without the _meta, a response of JSON')
+
 with subtest('Security'):
     os.environ['MCP_TOKEN'] = 'sesame'
     try:

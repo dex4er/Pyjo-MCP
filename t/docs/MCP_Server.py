@@ -1,3 +1,4 @@
+import Pyjo.IOLoop
 import Pyjo.MCP.Test
 import Pyjoyment
 
@@ -75,6 +76,19 @@ with subtest('Context'):
         'whoami',
     )
 
+with subtest('Context cancelled'):
+    context = Pyjo.MCP.Server.Context.new()
+    got = []
+
+    @context.on('cancelled')
+    def cancelled(context):
+        got.append(context.is_cancelled)
+
+    id = Pyjo.IOLoop.recurring(1, lambda: ...)
+    context.on('cancelled', lambda context: Pyjo.IOLoop.remove(id))
+    context.cancel()
+    is_deeply_ok(got, [True], 'cancelled')
+
 with subtest('Context.new'):
     context = Pyjo.MCP.Server.Context.new()
     is_ok(context.controller, None, 'context')
@@ -91,12 +105,76 @@ with subtest('Context attributes'):
     is_deeply_ok(info, {'name': 'ExampleClient', 'version': '1.0.0'}, 'info')
     c = context.controller
     is_ok(c, None, 'c')
+    level = context.log_level
+    is_ok(level, None, 'level')
     meta = context.meta
     is_deeply_ok(meta, META, 'meta')
+    token = context.progress_token
+    is_ok(token, None, 'token')
     version = context.protocol_version
     is_ok(version, '2026-07-28', 'version')
     status = context.status
     is_ok(status, None, 'status')
+    cb = context.stream
+    is_ok(cb, None, 'stream')
+    sent = []
+    context.stream = lambda notification: sent.append(notification)
+    context.notify('notifications/message', {'level': 'info', 'data': 'Hello'})
+    is_deeply_ok(
+        sent, [{'jsonrpc': '2.0', 'method': 'notifications/message', 'params': {'level': 'info', 'data': 'Hello'}}]
+    )
+    context = Pyjo.MCP.Server.Context.new()
+    meta = {**META, 'progressToken': 'p1', 'io.modelcontextprotocol/logLevel': 'warning'}
+    dispatch(server, {**request('tools/list'), 'params': {'_meta': meta}}, context)
+    is_deeply_ok((context.log_level, context.progress_token), ('warning', 'p1'), 'from the _meta')
+
+with subtest('Context.is_cancelled'):
+    context = Pyjo.MCP.Server.Context.new()
+    boolean = context.is_cancelled
+    ok(not boolean, 'not cancelled')
+
+with subtest('Context.cancel'):
+    context = context.cancel()
+    ok(context.is_cancelled, 'cancelled')
+    is_ok(context.notify('notifications/message'), False, 'no notification of an abandoned request')
+
+with subtest('Context.notify'):
+    context = Pyjo.MCP.Server.Context.new()
+    is_ok(context.notify('notifications/message', {'level': 'info', 'data': 'Hello'}), False, 'no stream')
+    sent = []
+    context.stream = sent.append
+    boolean = context.notify('notifications/message', {'level': 'info', 'data': 'Hello'})
+    ok(boolean, 'sent')
+    is_deeply_ok(sent[0]['params'], {'level': 'info', 'data': 'Hello'}, 'notification')
+
+with subtest('Context.notify_log'):
+    is_ok(context.notify_log('info', 'Fetching the forecast'), False, 'no level')
+    context.log_level = 'info'
+    boolean = context.notify_log('info', 'Fetching the forecast')
+    ok(boolean, 'sent')
+    boolean = context.notify_log('error', {'code': 23})
+    ok(boolean, 'sent')
+    is_ok(context.notify_log('debug', 'Detail'), False, 'below the level')
+    is_deeply_ok(
+        [message['params'] for message in sent[1:]],
+        [{'level': 'info', 'data': 'Fetching the forecast'}, {'level': 'error', 'data': {'code': 23}}],
+        'log messages',
+    )
+
+with subtest('Context.notify_progress'):
+    is_ok(context.notify_progress(1), False, 'no token')
+    context.progress_token = 7
+    boolean = context.notify_progress(1)
+    ok(boolean, 'sent')
+    boolean = context.notify_progress(1, 3, 'Fetched the first page')
+    is_deeply_ok(
+        [message['params'] for message in sent[3:]],
+        [
+            {'progressToken': 7, 'progress': 1},
+            {'progressToken': 7, 'progress': 1, 'total': 3, 'message': 'Fetched the first page'},
+        ],
+        'progress',
+    )
 
 with subtest('exception'):
     server = Pyjo.MCP.Server.new()
