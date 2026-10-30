@@ -46,6 +46,19 @@ server.tool(
     },
 )
 
+
+@server.prompt
+def review(code: str, language: str = 'Python') -> str:
+    """Review a piece of code."""
+    return f'Review this {language} code:\n{code}'
+
+
+@server.resource('file:///project/README.md', mime_type='text/markdown')
+def readme() -> str:
+    """The documentation of the project."""
+    return '# Project'
+
+
 app = Pyjoyment.new()
 app.log.level = 'fatal'
 app.routes.any('/mcp').to(cb=server.to_action())
@@ -171,11 +184,29 @@ with subtest('error_message_like'):
     t = t.error_message_like(re.compile(r'^Unknown tool'))
     t = t.error_message_like(re.compile(r'^Unknown tool'), 'right message')
 
+with subtest('get_prompt_ok'):
+    t = t.get_prompt_ok('review')
+    t.error_message_is('Missing required argument: code')
+    t = t.get_prompt_ok('review', code='x = 1')
+    t.text_content_is('Review this Python code:\nx = 1')
+    t = t.get_prompt_ok('review', {'code': 'x = 1'})
+    t.text_content_is('Review this Python code:\nx = 1')
+
+    t.get_prompt_ok('review', code='x = 1').status_is(200).text_content_like(r'x = 1')
+
 with subtest('is_error_is'):
     t.call_ok('add', a=1, b=2)
     t = t.is_error_is(False)
     t.call_ok('add', a=1)
     t = t.is_error_is(True, 'error of the tool')
+
+with subtest('list_prompts_ok'):
+    t = t.list_prompts_ok()
+    t.status_is(200).prompt_exists('review')
+
+with subtest('list_resources_ok'):
+    t = t.list_resources_ok()
+    t.status_is(200).resource_exists('file:///project/README.md')
 
 with subtest('list_tools_ok'):
     t = t.list_tools_ok()
@@ -194,6 +225,44 @@ with subtest('mcp_ok'):
     # A revision of the specification that the server does not support
     t.mcp_ok('tools/list', meta={'io.modelcontextprotocol/protocolVersion': '1900-01-01'}).status_is(400)
     t.error_code_is(-32022)
+
+with subtest('prompt_exists'):
+    t.list_prompts_ok()
+    t = t.prompt_exists('review')
+    t = t.prompt_exists('review', 'has a review')
+
+with subtest('prompt_exists_not'):
+    t = t.prompt_exists_not('summary')
+    t = t.prompt_exists_not('summary', 'no summary')
+
+with subtest('prompt_is'):
+    with recording(t) as calls:
+        t = t.prompt_is('review', {'name': 'review', 'arguments': []})
+    is_ok(calls[0][1]['name'], 'review', 'prompt')
+    t = t.prompt_is('review', '/arguments/0/name', 'code')
+    t = t.prompt_is('review', '/arguments/0/required', True, 'code required')
+
+with subtest('read_resource_ok'):
+    t = t.read_resource_ok('file:///project/README.md')
+    t.text_content_is('# Project')
+
+    t.read_resource_ok('file:///project/README.md').status_is(200).text_content_like(r'^# ')
+
+with subtest('resource_exists'):
+    t.list_resources_ok()
+    t = t.resource_exists('file:///project/README.md')
+    t = t.resource_exists('file:///project/README.md', 'has a README')
+
+with subtest('resource_exists_not'):
+    t = t.resource_exists_not('file:///etc/passwd')
+    t = t.resource_exists_not('file:///etc/passwd', 'no secrets')
+
+with subtest('resource_is'):
+    with recording(t) as calls:
+        t = t.resource_is('file:///project/README.md', {'uri': 'file:///project/README.md', 'name': 'readme'})
+    is_ok(calls[0][1]['mimeType'], 'text/markdown', 'resource')
+    t = t.resource_is('file:///project/README.md', '/mimeType', 'text/markdown')
+    t = t.resource_is('file:///project/README.md', '/name', 'readme', 'right name')
 
 with subtest('response_is'):
     t.discover_ok()
@@ -228,6 +297,9 @@ with subtest('text_content_is'):
     t.call_ok('greet', name='Pyjo')
     t = t.text_content_is('Hello, Pyjo!')
     t = t.text_content_is('Hello, Pyjo!', 'right text')
+
+    t.get_prompt_ok('review', code='x = 1').text_content_is('Review this Python code:\nx = 1')
+    t.read_resource_ok('file:///project/README.md').text_content_is('# Project')
 
 with subtest('text_content_like'):
     t.call_ok('greet')

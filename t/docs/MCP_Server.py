@@ -35,10 +35,32 @@ with subtest('Synopsis'):
         """Add two numbers."""
         return a + b
 
+    @server.prompt
+    def explain(expression: str) -> str:
+        """Explain an arithmetic expression step by step."""
+        return f'Explain step by step how to compute {expression}.'
+
+    @server.resource('calculator://precision', mime_type='application/json')
+    def precision() -> dict:
+        """The precision of the numbers of the calculator."""
+        return {'digits': 15}
+
     is_ok(
         dispatch(server, request('tools/call', name='add', arguments={'a': 1, 'b': 2}))['result']['structuredContent'],
         3,
         'add',
+    )
+    is_ok(
+        dispatch(server, request('prompts/get', name='explain', arguments={'expression': '1 + 2'}))['result'][
+            'messages'
+        ][0]['content']['text'],
+        'Explain step by step how to compute 1 + 2.',
+        'explain',
+    )
+    is_ok(
+        dispatch(server, request('resources/read', uri='calculator://precision'))['result']['contents'][0]['text'],
+        '{"digits":15}',
+        'precision',
     )
 
     # Or import the module, as in Google Python Style Guide
@@ -211,6 +233,10 @@ with subtest('Attributes'):
     name = server.name
     is_ok(name, 'calculator', 'name')
     server.name = 'calculator'
+    prompts = server.prompts
+    is_deeply_ok(prompts, [], 'prompts')
+    resources = server.resources
+    is_deeply_ok(resources, [], 'resources')
     tools = server.tools
     is_deeply_ok(tools, [], 'tools')
     version = server.version
@@ -244,6 +270,49 @@ with subtest('dispatch_p'):
     is_ok(context.status, 400, 'status of the error')
     is_ok(dispatch(server, [request('tools/list')])['error']['code'], -32600, 'batch')
     is_ok(dispatch(server, {**request('tools/list'), 'id': None})['error']['code'], -32600, 'id of null')
+
+with subtest('prompt'):
+    server = Pyjo.MCP.Server.new()
+    cb = server.prompt('review', lambda code: f'Review this code:\n{code}')
+    is_ok(cb('x'), 'Review this code:\nx', 'cb')
+    cb = server.prompt('review', lambda context, code: ..., context=True)
+
+    @server.prompt
+    def review(code: str, language: str = 'Python') -> str:
+        """Review a piece of code."""
+        return f'Review this {language} code:\n{code}'
+
+    @server.prompt('code_review', title='Code review')
+    def code_review(code: str) -> str:
+        """Review a piece of code."""
+        return f'Review this code:\n{code}'
+
+    is_deeply_ok([prompt.name for prompt in server.prompts], ['review', 'review', 'review', 'code_review'], 'prompts')
+    ok(server.prompts[1].context, 'context')
+    is_ok(server.prompts[3].title, 'Code review', 'title')
+
+with subtest('resource'):
+    server = Pyjo.MCP.Server.new()
+    cb = server.resource('file:///project/README.md', lambda: '# Project', mime_type='text/markdown')
+    is_ok(cb(), '# Project', 'cb')
+    cb = server.resource('config://app', lambda context: ..., context=True)
+
+    @server.resource('file:///project/README.md', mime_type='text/markdown')
+    def readme() -> str:
+        """The documentation of the project."""
+        return '# Project'
+
+    is_deeply_ok(
+        [(resource.uri, resource.name) for resource in server.resources],
+        [
+            ('file:///project/README.md', '<lambda>'),
+            ('config://app', '<lambda>'),
+            ('file:///project/README.md', 'readme'),
+        ],
+        'resources',
+    )
+    ok(server.resources[1].context, 'context')
+    is_ok(server.resources[2].description, 'The documentation of the project.', 'description')
 
 with subtest('tool'):
     server = Pyjo.MCP.Server.new()

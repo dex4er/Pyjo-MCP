@@ -63,6 +63,22 @@ uv run python calculator.py daemon -l http://127.0.0.1:3000
 Its endpoint is `http://127.0.0.1:3000/mcp`, of the transport Streamable HTTP.
 The whole calculator is [`examples/calculator.py`](examples/calculator.py).
 
+Prompts, the templates of messages that a user picks, and resources, the data
+that a client reads by its URI, are functions too:
+
+```python
+@server.prompt
+def explain(expression: str) -> str:
+    """Explain an arithmetic expression step by step."""
+    return f'Explain step by step how to compute {expression}.'
+
+
+@server.resource('calculator://precision', mime_type='application/json')
+def precision() -> dict:
+    """The precision of the numbers of the calculator."""
+    return {'digits': 15}
+```
+
 The same application serves the transport stdio too, with a hook:
 
 ```python
@@ -131,11 +147,12 @@ are on [Read the Docs](https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/lat
 
 ## Status
 
-A server of the tools of MCP over Streamable HTTP and stdio, with
-`server/discover`, `tools/list` and `tools/call`, a client of them over
-Streamable HTTP, and assertions of tests with its requests. A tool sends its
-progress and its log messages before its result. Prompts, resources and the
-subscriptions are to come.
+A server of the tools, the prompts and the resources of MCP over Streamable
+HTTP and stdio, with `server/discover`, `tools/list`, `tools/call`,
+`prompts/list`, `prompts/get`, `resources/list` and `resources/read`, a client
+of them over Streamable HTTP, and assertions of tests with its requests. A tool
+sends its progress and its log messages before its result. The templates of
+resources and the subscriptions are to come.
 
 ## License
 

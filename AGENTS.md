@@ -16,7 +16,8 @@ the MIT license.
 ## The Server
 
 `Pyjo.MCP.Server` is made on `Pyjo.JSON.RPC` of Pyjoyment: its methods,
-`server/discover`, `tools/list` and `tools/call`, are methods of a dispatcher
+`server/discover`, `tools/list`, `tools/call`, `prompts/list`, `prompts/get`,
+`resources/list` and `resources/read`, are methods of a dispatcher
 of JSON-RPC that get the `Context` of the request, and `dispatch_p` takes a
 message of any transport. A batch and a request with the `id` of `null` are
 invalid requests, as MCP has neither. Each method checks the `_meta` of its
@@ -82,8 +83,8 @@ requests itself, with the `_meta` of the client over the one of the
 parameters, and not with the client of `Pyjo.JSON.RPC`, as an id of its own
 and the headers made from the body belong to each request. Its methods block,
 as those of the Perl client, and each has a form `_p` with a promise, as
-`Pyjo.UserAgent` has them. The prompts, the resources, `subscriptions/listen`
-and the options of the multi round-trip requests come with them in the server.
+`Pyjo.UserAgent` has them. `subscriptions/listen` and the options of the multi
+round-trip requests come with them in the server.
 
 A client knows the `x-mcp-header` of a tool only from its definition, so the
 headers `Mcp-Param-{name}` of a call come from `tools`, which the last
@@ -136,6 +137,26 @@ enum of strings or a date, gets no `outputSchema`, and its value is the text of
 the content; a value of an `outputSchema` that does not validate is an error
 of the server, not of the language model.
 
+## The Prompts and the Resources
+
+A prompt and a resource are functions, as a tool, but without the schemas of
+JSON Schema: an argument of a prompt has only its name, its description and
+whether it is required, as the specification gives it no type, and its values
+are strings, so the parameters of the function are those of `parameters` of
+`Pyjo.JSON.Schema`, without their schemas. A missing required argument, or one
+that the function does not take, is the error `-32602` of the protocol, not a
+result with `isError` as of a tool, as the result of a prompt has no
+`isError`. An unknown prompt is `-32602` with `200 OK`, as an unknown tool, and
+an unknown resource `-32602` with the message `Resource not found` and its URI
+in `data`, as the specification has it.
+
+The result of `resources/read` is cacheable, with the `ttlMs` and the
+`cacheScope` of the server, as the results of the lists, and the one of
+`prompts/get` is not, as the specification has them. A resource is a URI of
+its own, as `file:///` or a scheme of the server: the templates of URIs, of
+RFC 6570, with `resources/templates/list`, and the subscriptions to a resource
+come later.
+
 ## The Guides
 
 The guides are pages of `docs/guides`, as the guides of Pyjoyment: an example
@@ -162,7 +183,8 @@ hides the namespace that `extend_path` keeps open, so it does not find
 ## The MCP SDK
 
 `t/sdk` runs the client of the MCP SDK, of the dependency group `sdk`, against
-the server of `examples/calculator.py`, as an implementation of the
+the server of `examples/calculator.py` and the ones of the tutorial, of the
+progress and of the prompts and resources, as an implementation of the
 specification of its own; without the group, the test is skipped. The server
 runs in a process of its own, as the client runs the event loop of asyncio in
 the process of the test, and the job `sdk` of the workflow Tests runs it:

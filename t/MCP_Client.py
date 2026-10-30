@@ -69,6 +69,21 @@ server.tool(
 )
 
 
+@server.prompt
+def review(code: str, language: str = 'Python') -> str:
+    """Review a piece of code."""
+    return f'Review this {language} code:\n{code}'
+
+
+@server.resource('file:///project/README.md', mime_type='text/markdown')
+def readme() -> str:
+    """The documentation of the project."""
+    return '# Project'
+
+
+server.resource('file:///project/logo.png', lambda: b'\x89PNG', name='logo', mime_type='image/png')
+
+
 def application(action):
     app = Pyjoyment.new()
     app.log.level = 'fatal'
@@ -193,6 +208,59 @@ with subtest('Calls'):
     e = failure(lambda: c.call_tool('power', {'a': 2}))
     isa_ok(e, Pyjo.JSON.RPC.Error, 'unknown tool')
     is_deeply_ok(error(e), (-32602, 'Unknown tool: power'), 'error of JSON-RPC')
+
+with subtest('Prompts'):
+    c = client()
+    result = c.list_prompts()
+    is_deeply_ok(
+        result['prompts'],
+        [
+            {
+                'name': 'review',
+                'description': 'Review a piece of code.',
+                'arguments': [{'name': 'code', 'required': True}, {'name': 'language', 'required': False}],
+            }
+        ],
+        'prompts',
+    )
+    is_ok(sent[-1]['Mcp-Method'], 'prompts/list', 'Mcp-Method')
+    result = c.get_prompt('review', {'code': 'x = 1'})
+    is_deeply_ok(
+        result['messages'],
+        [{'role': 'user', 'content': {'type': 'text', 'text': 'Review this Python code:\nx = 1'}}],
+        'messages',
+    )
+    is_ok(sent[-1]['Mcp-Method'], 'prompts/get', 'Mcp-Method')
+    is_ok(sent[-1]['Mcp-Name'], 'review', 'Mcp-Name')
+    e = failure(lambda: c.get_prompt('review'))
+    isa_ok(e, Pyjo.JSON.RPC.Error, 'missing argument')
+    is_deeply_ok(error(e), (-32602, 'Missing required argument: code'), 'error of JSON-RPC')
+    e = failure(lambda: c.get_prompt('unknown'))
+    is_deeply_ok(error(e), (-32602, 'Unknown prompt: unknown'), 'unknown prompt')
+
+with subtest('Resources'):
+    c = client()
+    result = c.list_resources()
+    is_deeply_ok(
+        [resource['uri'] for resource in result['resources']],
+        ['file:///project/README.md', 'file:///project/logo.png'],
+        'resources',
+    )
+    is_ok(sent[-1]['Mcp-Method'], 'resources/list', 'Mcp-Method')
+    result = c.read_resource('file:///project/README.md')
+    is_deeply_ok(
+        result['contents'],
+        [{'uri': 'file:///project/README.md', 'mimeType': 'text/markdown', 'text': '# Project'}],
+        'contents',
+    )
+    is_ok(sent[-1]['Mcp-Method'], 'resources/read', 'Mcp-Method')
+    is_ok(sent[-1]['Mcp-Name'], 'file:///project/README.md', 'Mcp-Name')
+    blob = base64.b64encode(b'\x89PNG').decode()
+    is_ok(c.read_resource('file:///project/logo.png')['contents'][0]['blob'], blob, 'blob')
+    e = failure(lambda: c.read_resource('file:///nonexistent.txt'))
+    isa_ok(e, Pyjo.JSON.RPC.Error, 'resource not found')
+    is_deeply_ok(error(e), (-32602, 'Resource not found'), 'error of JSON-RPC')
+    is_deeply_ok(e.data, {'uri': 'file:///nonexistent.txt'}, 'data of the error')
 
 with subtest('Meta of the client'):
     c = client(name='ExampleClient', version='2.0.0')
@@ -386,7 +454,13 @@ with subtest('Non-blocking'):
     c.send_request_p(c.build_notification('notifications/cancelled')).then(
         lambda response=None: results.append(response)
     ).wait()
-    is_deeply_ok(results, ['Utilities.', 6, 3, 'later', None], 'results')
+    c.list_prompts_p().then(lambda result: results.append(len(result['prompts']))).wait()
+    c.get_prompt_p('review', {'code': 'x'}).then(lambda result: results.append(len(result['messages']))).wait()
+    c.list_resources_p().then(lambda result: results.append(len(result['resources']))).wait()
+    c.read_resource_p('file:///project/README.md').then(
+        lambda result: results.append(result['contents'][0]['text'])
+    ).wait()
+    is_deeply_ok(results, ['Utilities.', 6, 3, 'later', None, 1, 1, 2, '# Project'], 'results')
     c.call_tool_p('power').catch(errors.append).wait()
     is_deeply_ok(error(errors[0]), (-32602, 'Unknown tool: power'), 'error of JSON-RPC')
     c = client(application(None))

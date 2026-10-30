@@ -149,6 +149,33 @@ the notifications are messages of the same stream:
 .. literalinclude:: tutorial/progress.py
     :language: python
 
+Prompts and resources
+---------------------
+
+A tool is what the language model calls; a prompt and a resource are what the
+user picks. A prompt is a template of messages, as a task that the user starts
+with its arguments, and a resource is data of the server, as a document or a
+configuration, which the client reads by its URI and gives the language model
+as its context. Both are functions too: the name and the description of a
+prompt are those of its function, and its arguments are the parameters, whose
+values are strings, of which those without a default are required. A resource
+has its URI, and its media type, ``text/plain`` by default.
+
+.. literalinclude:: tutorial/review.py
+    :language: python
+
+A prompt returns a string, which is one message of the user, or the messages
+themselves, here with the style guide embedded as a resource before the
+question. A resource returns a string, which is its text, :class:`bytes`,
+which are its ``blob`` in Base64, or another value, whose JSON is the text, as
+the limits here. Like a tool, both can return a :mod:`Pyjo.Promise` or be
+coroutines, and get the :class:`~Pyjo.MCP.Server.Context` of the request with
+``context``.
+
+Claude Code lists the prompts as commands, as ``/mcp__reviewer__review``,
+which ask for the arguments, and the resources as mentions, as
+``@reviewer:docs://style``, which put their contents into the conversation.
+
 Security
 --------
 
@@ -211,7 +238,8 @@ and ``isError``, the tools of ``tools/list`` and the errors of JSON-RPC:
 More
 ----
 
-The API of the server, of the tools, of the client and of the tests is in
-:mod:`Pyjo.MCP.Server`, :mod:`Pyjo.MCP.Tool`, :mod:`Pyjo.MCP.Client` and
+The API of the server, of the tools, of the prompts, of the resources, of the
+client and of the tests is in :mod:`Pyjo.MCP.Server`, :mod:`Pyjo.MCP.Tool`,
+:mod:`Pyjo.MCP.Prompt`, :mod:`Pyjo.MCP.Resource`, :mod:`Pyjo.MCP.Client` and
 :mod:`Pyjo.MCP.Test`, and the deployment of an application, with the servers
 of Pyjoyment and a container, in its :doc:`cookbook <pyjoyment:guides/cookbook>`.

@@ -151,6 +151,49 @@ with subtest('Progress'):
     t.structured_content_is(2)
     is_deeply_ok(t.notifications, [], 'without the _meta, a response of JSON')
 
+with subtest('Prompts and resources'):
+    t = tutorial('review')
+    t.discover_ok().status_is(200).result_is('/capabilities', {'prompts': {}, 'resources': {}})
+    t.list_resources_ok().status_is(200)
+    t.result_is(
+        '/resources',
+        [
+            {
+                'uri': 'docs://style',
+                'name': 'style',
+                'description': 'The style guide of the project.',
+                'mimeType': 'text/markdown',
+            },
+            {
+                'uri': 'config://limits',
+                'name': 'limits',
+                'description': 'The limits that the linter checks.',
+                'mimeType': 'application/json',
+            },
+        ],
+    )
+    t.read_resource_ok('docs://style').status_is(200).text_content_like(re.compile(r'^# Style guide\n'))
+    t.read_resource_ok('config://limits').status_is(200).text_content_is('{"line_length":120}')
+    t.result_is('/contents/0/mimeType', 'application/json')
+    t.list_prompts_ok().status_is(200)
+    t.prompt_is(
+        'review',
+        {
+            'name': 'review',
+            'title': 'Code review',
+            'description': 'Review a piece of code against the style guide.',
+            'arguments': [
+                {'name': 'code', 'description': 'The code to review.', 'required': True},
+                {'name': 'focus', 'description': 'What to look for, as bugs or style.', 'required': False},
+            ],
+        },
+    )
+    t.get_prompt_ok('review', code='x = "1"', focus='style').status_is(200)
+    t.result_is('/messages/0/content/resource/uri', 'docs://style')
+    t.result_is('/messages/1/content/text', 'Review this code for style:\nx = "1"')
+    t.get_prompt_ok('review').status_is(200).error_message_is('Missing required argument: code')
+    t.ua.close()
+
 with subtest('Security'):
     os.environ['MCP_TOKEN'] = 'sesame'
     try:

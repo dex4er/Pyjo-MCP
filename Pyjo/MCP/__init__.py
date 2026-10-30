@@ -29,15 +29,17 @@ made with Pyjoyment, of the revision :data:`PROTOCOL_VERSION` of the
 specification, whose core is stateless: every request carries its version and
 the capabilities of its client in its ``_meta``, without a session.
 
-:mod:`Pyjo.MCP.Server` is the server, whose tools are :mod:`Pyjo.MCP.Tool`
+:mod:`Pyjo.MCP.Server` is the server, whose tools, prompts and resources are
+:mod:`Pyjo.MCP.Tool`, :mod:`Pyjo.MCP.Prompt` and :mod:`Pyjo.MCP.Resource`
 objects, :mod:`Pyjo.MCP.Client` is the client, :mod:`Pyjo.MCP.Test` tests a
 server with its requests, and the messages are those of :mod:`Pyjo.JSON.RPC`.
 
 See also
 --------
 
-:mod:`Pyjo.MCP.Server`, :mod:`Pyjo.MCP.Tool`, :mod:`Pyjo.MCP.Client`,
-:mod:`Pyjo.MCP.Test`, :mod:`Pyjoyment`, https://github.com/dex4er/Pyjoyment.
+:mod:`Pyjo.MCP.Server`, :mod:`Pyjo.MCP.Tool`, :mod:`Pyjo.MCP.Prompt`,
+:mod:`Pyjo.MCP.Resource`, :mod:`Pyjo.MCP.Client`, :mod:`Pyjo.MCP.Test`,
+:mod:`Pyjoyment`, https://github.com/dex4er/Pyjoyment.
 
 It is inspired by the distribution `MCP <https://metacpan.org/pod/MCP>`_ of
 CPAN, built on Mojolicious.

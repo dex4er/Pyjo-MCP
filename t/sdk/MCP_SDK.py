@@ -13,9 +13,9 @@ import urllib.error
 import urllib.request
 
 
-# The client of the MCP SDK, of the dependency group "sdk", calls the server of examples/calculator.py, and the one of
-# the progress of the tutorial, which run in a process of their own, as the client runs the event loop of asyncio in the
-# process of the test, over Streamable HTTP and over stdio
+# The client of the MCP SDK, of the dependency group "sdk", calls the server of examples/calculator.py, and the ones of
+# the progress and of the prompts and resources of the tutorial, which run in a process of their own, as the client runs
+# the event loop of asyncio in the process of the test, over Streamable HTTP and over stdio
 
 if not importlib.util.find_spec('mcp'):
     plan(skip_all='the MCP SDK is required, as of the dependency group "sdk"')
@@ -25,6 +25,7 @@ from mcp import Client, StdioServerParameters  # noqa: E402
 
 EXAMPLE = curfile().dirname().dirname().sibling('examples', 'calculator.py').to_str()
 PROGRESS = curfile().dirname().dirname().sibling('docs', 'guides', 'tutorial', 'progress.py').to_str()
+REVIEW = curfile().dirname().dirname().sibling('docs', 'guides', 'tutorial', 'review.py').to_str()
 
 
 def port():
@@ -64,6 +65,42 @@ async def progress(server):
     async with Client(server, logging_callback=logging, log_level='info') as mcp:
         result = await mcp.call_tool('count', {'to': 3}, progress_callback=step)
     return result, logs, steps
+
+
+async def library(server):
+    # The prompts and the resources
+    asyncio.get_running_loop().slow_callback_duration = 5
+    async with Client(server) as mcp:
+        prompts = (await mcp.list_prompts()).prompts
+        prompt = await mcp.get_prompt('review', {'code': 'x = "1"', 'focus': 'style'})
+        resources = (await mcp.list_resources()).resources
+        style = await mcp.read_resource('docs://style')
+        limits = await mcp.read_resource('config://limits')
+        try:
+            await mcp.read_resource('docs://missing')
+            missing = None
+        except Exception as e:
+            missing = str(e)
+        return prompts, prompt, resources, style, limits, missing
+
+
+def check_library(prompts, prompt, resources, style, limits, missing):
+    is_deeply_ok([prompt.name for prompt in prompts], ['review'], 'prompts/list')
+    is_deeply_ok(
+        [(argument.name, argument.required) for argument in prompts[0].arguments],
+        [('code', True), ('focus', False)],
+        'arguments',
+    )
+    is_ok(prompt.messages[0].content.resource.uri, 'docs://style', 'embedded resource')
+    is_ok(prompt.messages[1].content.text, 'Review this code for style:\nx = "1"', 'prompts/get')
+    is_deeply_ok(
+        [(str(resource.uri), resource.mime_type) for resource in resources],
+        [('docs://style', 'text/markdown'), ('config://limits', 'application/json')],
+        'resources/list',
+    )
+    like_ok(style.contents[0].text, r'^# Style guide', 'resources/read')
+    is_ok(limits.contents[0].text, '{"line_length":120}', 'JSON')
+    is_ok(missing, 'Resource not found', 'unknown resource')
 
 
 def check_progress(result, logs, steps):
@@ -123,6 +160,10 @@ with subtest('Notifications over Streamable HTTP'):
     with daemon(PROGRESS) as url:
         check_progress(*asyncio.run(progress(url)))
 
+with subtest('Prompts and resources over Streamable HTTP'):
+    with daemon(REVIEW) as url:
+        check_library(*asyncio.run(library(url)))
+
 # The client starts the server of the command stdio itself, and ends it when it closes its standard input
 with subtest('Client of the MCP SDK over stdio'):
     check(*asyncio.run(session(StdioServerParameters(command=sys.executable, args=[EXAMPLE, 'stdio'], env=env))))
@@ -131,5 +172,8 @@ with subtest('Notifications over stdio'):
     check_progress(
         *asyncio.run(progress(StdioServerParameters(command=sys.executable, args=[PROGRESS, 'stdio'], env=env)))
     )
+
+with subtest('Prompts and resources over stdio'):
+    check_library(*asyncio.run(library(StdioServerParameters(command=sys.executable, args=[REVIEW, 'stdio'], env=env))))
 
 done_testing()

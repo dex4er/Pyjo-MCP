@@ -210,6 +210,21 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
             'like', self._response_value('/error/message'), regex, desc or 'similar match for error message'
         )
 
+    def get_prompt_ok(self, name: str, arguments: dict[str, Any] | None = None, /, **kwargs: Any) -> Self:
+        """::
+
+            t = t.get_prompt_ok('review')
+            t = t.get_prompt_ok('review', code='x = 1')
+            t = t.get_prompt_ok('review', {'code': 'x = 1'})
+
+        Get the messages of a prompt with ``prompts/get``, with its arguments
+        as a :class:`dict` or as keyword arguments, and check for transport
+        errors. ::
+
+            t.get_prompt_ok('review', code='x = 1').status_is(200).text_content_like(r'x = 1')
+        """
+        return self.mcp_ok('prompts/get', {'name': name, 'arguments': {**(arguments or {}), **kwargs}})
+
     def is_error_is(self, value: bool, desc: str | None = None) -> Self:
         """::
 
@@ -223,6 +238,26 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
         return self.test(
             'is', self._response_value('/result/isError'), value, desc or f'isError is {Pyjo.JSON.to_json(value)}'
         )
+
+    def list_prompts_ok(self, *, headers: dict[str, Any] | None = None, meta: dict[str, Any] | None = None) -> Self:
+        """::
+
+            t = t.list_prompts_ok()
+
+        List the prompts with ``prompts/list``, and check for transport
+        errors, with the headers and the ``_meta`` of :meth:`mcp_ok`.
+        """
+        return self.mcp_ok('prompts/list', headers=headers, meta=meta)
+
+    def list_resources_ok(self, *, headers: dict[str, Any] | None = None, meta: dict[str, Any] | None = None) -> Self:
+        """::
+
+            t = t.list_resources_ok()
+
+        List the resources with ``resources/list``, and check for transport
+        errors, with the headers and the ``_meta`` of :meth:`mcp_ok`.
+        """
+        return self.mcp_ok('resources/list', headers=headers, meta=meta)
 
     def list_tools_ok(self, *, headers: dict[str, Any] | None = None, meta: dict[str, Any] | None = None) -> Self:
         """::
@@ -301,6 +336,91 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
         self.notifications = notifications
         return self
 
+    def prompt_exists(self, name: str, desc: str | None = None) -> Self:
+        """::
+
+            t = t.prompt_exists('review')
+            t = t.prompt_exists('review', 'has a review')
+
+        Check if the result of ``prompts/list`` has a prompt of the name.
+        """
+        return self.test('ok', self._listed('prompts', 'name', name) is not None, desc or f'has prompt "{name}"')
+
+    def prompt_exists_not(self, name: str, desc: str | None = None) -> Self:
+        """::
+
+            t = t.prompt_exists_not('summary')
+            t = t.prompt_exists_not('summary', 'no summary')
+
+        Opposite of :meth:`prompt_exists`.
+        """
+        return self.test('ok', self._listed('prompts', 'name', name) is None, desc or f'has no prompt "{name}"')
+
+    def prompt_is(self, name: str, *args: Any) -> Self:
+        """::
+
+            t = t.prompt_is('review', {'name': 'review', 'arguments': []})
+            t = t.prompt_is('review', '/arguments/0/name', 'code')
+            t = t.prompt_is('review', '/arguments/0/required', True, 'code required')
+
+        Check the value of the definition of a prompt of the result of
+        ``prompts/list``, at a JSON Pointer of :mod:`Pyjo.JSON.Pointer`, which
+        defaults to the whole definition.
+        """
+        p, data, desc = _args(args)
+        got = Pyjo.JSON.Pointer.new(self._listed('prompts', 'name', name)).get(p)
+        return self.test('is_deeply', got, data, desc or f'exact match for prompt "{name}" "{p}"')
+
+    def read_resource_ok(
+        self, uri: str, *, headers: dict[str, Any] | None = None, meta: dict[str, Any] | None = None
+    ) -> Self:
+        """::
+
+            t = t.read_resource_ok('file:///project/README.md')
+
+        Read the contents of a resource with ``resources/read``, and check for
+        transport errors, with the headers and the ``_meta`` of
+        :meth:`mcp_ok`. ::
+
+            t.read_resource_ok('file:///project/README.md').status_is(200).text_content_like(r'^# ')
+        """
+        return self.mcp_ok('resources/read', {'uri': uri}, headers=headers, meta=meta)
+
+    def resource_exists(self, uri: str, desc: str | None = None) -> Self:
+        """::
+
+            t = t.resource_exists('file:///project/README.md')
+            t = t.resource_exists('file:///project/README.md', 'has a README')
+
+        Check if the result of ``resources/list`` has a resource of the URI.
+        """
+        return self.test('ok', self._listed('resources', 'uri', uri) is not None, desc or f'has resource "{uri}"')
+
+    def resource_exists_not(self, uri: str, desc: str | None = None) -> Self:
+        """::
+
+            t = t.resource_exists_not('file:///etc/passwd')
+            t = t.resource_exists_not('file:///etc/passwd', 'no secrets')
+
+        Opposite of :meth:`resource_exists`.
+        """
+        return self.test('ok', self._listed('resources', 'uri', uri) is None, desc or f'has no resource "{uri}"')
+
+    def resource_is(self, uri: str, *args: Any) -> Self:
+        """::
+
+            t = t.resource_is('file:///project/README.md', {'uri': 'file:///project/README.md', 'name': 'readme'})
+            t = t.resource_is('file:///project/README.md', '/mimeType', 'text/markdown')
+            t = t.resource_is('file:///project/README.md', '/name', 'readme', 'right name')
+
+        Check the value of the definition of a resource of the result of
+        ``resources/list``, at a JSON Pointer of :mod:`Pyjo.JSON.Pointer`,
+        which defaults to the whole definition.
+        """
+        p, data, desc = _args(args)
+        got = Pyjo.JSON.Pointer.new(self._listed('resources', 'uri', uri)).get(p)
+        return self.test('is_deeply', got, data, desc or f'exact match for resource "{uri}" "{p}"')
+
     def response_is(self, *args: Any) -> Self:
         """::
 
@@ -350,8 +470,12 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
             t = t.text_content_is('Hello, Pyjo!')
             t = t.text_content_is('Hello, Pyjo!', 'right text')
 
-        Check the text of the ``content`` of the result of a tool, its items
-        of the type ``text`` joined.
+        Check the text of the result: of the ``content`` of a tool, of the
+        ``content`` of the messages of a prompt, or of the ``contents`` of a
+        resource, its items of the type ``text`` joined. ::
+
+            t.get_prompt_ok('review', code='x = 1').text_content_is('Review this Python code:\\nx = 1')
+            t.read_resource_ok('file:///project/README.md').text_content_is('# Project')
         """
         return self.test('is', self._content_text(), text, desc or 'exact match for text content')
 
@@ -361,8 +485,8 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
             t = t.text_content_like(re.compile(r'/name: Missing property'))
             t = t.text_content_like(re.compile(r'/name: Missing property'), 'right error')
 
-        Check the text of the ``content`` of the result of a tool for a
-        similar match.
+        Check the text of the result, as :meth:`text_content_is` takes it, for
+        a similar match.
         """
         return self.test('like', self._content_text(), regex, desc or 'similar match for text content')
 
@@ -374,7 +498,7 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
 
         Check if the result of ``tools/list`` has a tool of the name.
         """
-        return self.test('ok', self._listed_tool(name) is not None, desc or f'has tool "{name}"')
+        return self.test('ok', self._listed('tools', 'name', name) is not None, desc or f'has tool "{name}"')
 
     def tool_exists_not(self, name: str, desc: str | None = None) -> Self:
         """::
@@ -384,7 +508,7 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
 
         Opposite of :meth:`tool_exists`.
         """
-        return self.test('ok', self._listed_tool(name) is None, desc or f'has no tool "{name}"')
+        return self.test('ok', self._listed('tools', 'name', name) is None, desc or f'has no tool "{name}"')
 
     def tool_is(self, name: str, *args: Any) -> Self:
         """::
@@ -398,25 +522,31 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
         defaults to the whole definition.
         """
         p, data, desc = _args(args)
-        got = Pyjo.JSON.Pointer.new(self._listed_tool(name)).get(p)
+        got = Pyjo.JSON.Pointer.new(self._listed('tools', 'name', name)).get(p)
         return self.test('is_deeply', got, data, desc or f'exact match for tool "{name}" "{p}"')
 
     def _response_value(self, p: str) -> Any:
         return Pyjo.JSON.Pointer.new(self.response).get(p)
 
     def _content_text(self) -> str | None:
-        # The text of the content of a result, or None without a content
-        content = self._response_value('/result/content')
-        if not isinstance(content, list):
+        # The text of the content of a tool, of the messages of a prompt, or of the contents of a resource, or None
+        result = _object(self._response_value('/result'))
+        if isinstance(content := result.get('content'), list):
+            items = [_object(item) for item in cast(list[Any], content)]
+        elif isinstance(messages := result.get('messages'), list):
+            items = [_object(_object(message).get('content')) for message in cast(list[Any], messages)]
+        elif isinstance(contents := result.get('contents'), list):
+            items = [{'type': 'text', **_object(item)} for item in cast(list[Any], contents) if 'text' in _object(item)]
+        else:
             return None
-        items = [_object(item) for item in cast(list[Any], content)]
         return ''.join(str(item.get('text', '')) for item in items if item.get('type') == 'text')
 
-    def _listed_tool(self, name: str) -> dict[str, Any] | None:
-        tools = self._response_value('/result/tools')
-        if not isinstance(tools, list):
+    def _listed(self, kind: str, key: str, value: str) -> dict[str, Any] | None:
+        # The definition of the result of a list, of the tools, the prompts or the resources, by its name or its URI
+        listed = self._response_value(f'/result/{kind}')
+        if not isinstance(listed, list):
             return None
-        return next((tool for tool in map(_object, cast(list[Any], tools)) if tool.get('name') == name), None)
+        return next((item for item in map(_object, cast(list[Any], listed)) if item.get(key) == value), None)
 
 
 def _args(args: tuple[Any, ...]) -> tuple[str, Any, str | None]:

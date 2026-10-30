@@ -161,6 +161,98 @@ with subtest('Requests that a client must not send'):
     is_ok(sent[-1]['X-Test'], 'Test', 'header of its own')
     t.ua.close()
 
+with subtest('Prompts and resources'):
+    library = Pyjo.MCP.Server.new(name='ExampleServer', version='1.0.0')
+
+    @library.prompt
+    def review(code: str, language: str = 'Python') -> str:
+        """Review a piece of code."""
+        return f'Review this {language} code:\n{code}'
+
+    @library.prompt
+    def chat() -> list:
+        """A conversation."""
+        return [
+            {'role': 'user', 'content': {'type': 'text', 'text': 'Hello'}},
+            {'role': 'assistant', 'content': {'type': 'image', 'data': 'aGVsbG8=', 'mimeType': 'image/png'}},
+            {'role': 'assistant', 'content': {'type': 'text', 'text': ', Pyjo!'}},
+        ]
+
+    library.resource('file:///project/README.md', lambda: '# Project', name='readme', mime_type='text/markdown')
+    library.resource('file:///project/logo.png', lambda: b'\x89PNG', name='logo', mime_type='image/png')
+    library.resource(
+        'file:///project/docs',
+        lambda: {
+            'contents': [
+                {'uri': 'file:///project/docs/a.md', 'text': 'A'},
+                {'uri': 'file:///project/docs/b.png', 'blob': 'aGVsbG8='},
+                {'uri': 'file:///project/docs/c.md', 'text': 'C'},
+            ]
+        },
+        name='docs',
+    )
+    app_library = application(library.to_action())
+    app_library.hook('before_dispatch', lambda c: sent.append(c.req.headers.to_dict()))
+    t = Pyjo.MCP.Test.new(app_library)
+    t.discover_ok().status_is(200).result_is('/capabilities', {'prompts': {}, 'resources': {}})
+
+    t.list_prompts_ok().status_is(200).prompt_exists('review').prompt_exists_not('summary')
+    is_ok(sent[-1]['Mcp-Method'], 'prompts/list', 'Mcp-Method')
+    t.prompt_is('review', '/description', 'Review a piece of code.')
+    t.prompt_is('review', '/arguments', [{'name': 'code', 'required': True}, {'name': 'language', 'required': False}])
+    t.prompt_is('summary', None)
+    t.get_prompt_ok('review', code='x = 1').status_is(200).text_content_is('Review this Python code:\nx = 1')
+    is_ok(sent[-1]['Mcp-Method'], 'prompts/get', 'Mcp-Method')
+    is_ok(sent[-1]['Mcp-Name'], 'review', 'Mcp-Name')
+    t.get_prompt_ok('review', {'code': 'x = 1'}, language='Perl').text_content_like(re.compile(r'^Review this Perl'))
+    t.get_prompt_ok('chat').text_content_is('Hello, Pyjo!').result_is('/messages/1/role', 'assistant')
+    t.get_prompt_ok('review').error_code_is(-32602).error_message_is('Missing required argument: code')
+    t.get_prompt_ok('summary').error_message_is('Unknown prompt: summary')
+
+    t.list_resources_ok().status_is(200).resource_exists('file:///project/README.md')
+    t.resource_exists_not('file:///etc/passwd')
+    is_ok(sent[-1]['Mcp-Method'], 'resources/list', 'Mcp-Method')
+    t.resource_is('file:///project/README.md', '/mimeType', 'text/markdown')
+    t.resource_is(
+        'file:///project/logo.png', {'uri': 'file:///project/logo.png', 'name': 'logo', 'mimeType': 'image/png'}
+    )
+    t.resource_is('file:///etc/passwd', None)
+    t.read_resource_ok('file:///project/README.md').status_is(200).text_content_is('# Project')
+    is_ok(sent[-1]['Mcp-Method'], 'resources/read', 'Mcp-Method')
+    is_ok(sent[-1]['Mcp-Name'], 'file:///project/README.md', 'Mcp-Name')
+    t.read_resource_ok('file:///project/logo.png').text_content_is('').result_is('/contents/0/blob', 'iVBORw==')
+    t.read_resource_ok('file:///project/docs').text_content_is('AC')
+    t.read_resource_ok('file:///etc/passwd').error_code_is(-32602).error_message_is('Resource not found')
+    t.error_is('/data/uri', 'file:///etc/passwd')
+    t.read_resource_ok('file:///project/README.md', headers={'Mcp-Name': None}).status_is(400)
+    t.read_resource_ok('file:///project/README.md', meta={'io.modelcontextprotocol/protocolVersion': '1900-01-01'})
+    t.status_is(400).error_code_is(-32022)
+    t.list_prompts_ok(headers={'Mcp-Method': 'tools/list'}).status_is(400)
+    t.list_resources_ok(meta={'io.modelcontextprotocol/clientCapabilities': None}).status_is(400)
+
+    t.list_prompts_ok()
+    handler = t.handler
+    calls = recorder(t)
+    t.prompt_exists('review').prompt_exists_not('review').prompt_is('review', '/name', 'review')
+    t.handler = handler
+    t.list_resources_ok()
+    more = recorder(t)
+    t.resource_exists('file:///project/README.md').resource_exists_not('file:///project/README.md')
+    t.resource_is('file:///project/README.md', '/name', 'readme', 'right name')
+    is_deeply_ok(
+        [call[0 :: len(call) - 1] for call in calls + more],
+        [
+            ('ok', 'has prompt "review"'),
+            ('ok', 'has no prompt "review"'),
+            ('is_deeply', 'exact match for prompt "review" "/name"'),
+            ('ok', 'has resource "file:///project/README.md"'),
+            ('ok', 'has no resource "file:///project/README.md"'),
+            ('is_deeply', 'right name'),
+        ],
+        'descriptions',
+    )
+    t.ua.close()
+
 with subtest('Client'):
     t = Pyjo.MCP.Test.new(application(server.to_action(), '/api/mcp'))
     t.client.url = '/api/mcp'
