@@ -127,6 +127,8 @@ with subtest('Context attributes'):
     is_deeply_ok(info, {'name': 'ExampleClient', 'version': '1.0.0'}, 'info')
     c = context.controller
     is_ok(c, None, 'c')
+    id = context.id
+    is_ok(id, 1, 'id')
     level = context.log_level
     is_ok(level, None, 'level')
     meta = context.meta
@@ -228,8 +230,14 @@ with subtest('Attributes'):
     ttl = server.cache_ttl
     is_ok(ttl, 0, 'ttl')
     server.cache_ttl = 300000
+    interval = server.heartbeat
+    is_ok(interval, 30, 'interval')
+    server.heartbeat = 15
     instructions = server.instructions
     server.instructions = 'Arithmetic for the model.'
+    boolean = server.list_changed
+    is_ok(boolean, False, 'list_changed')
+    server.list_changed = True
     name = server.name
     is_ok(name, 'calculator', 'name')
     server.name = 'calculator'
@@ -237,6 +245,9 @@ with subtest('Attributes'):
     is_deeply_ok(prompts, [], 'prompts')
     resources = server.resources
     is_deeply_ok(resources, [], 'resources')
+    boolean = server.subscribe
+    is_ok(boolean, False, 'subscribe')
+    server.subscribe = True
     tools = server.tools
     is_deeply_ok(tools, [], 'tools')
     version = server.version
@@ -252,6 +263,13 @@ with subtest('Attributes'):
             {'io.modelcontextprotocol/serverInfo': {'name': 'calculator', 'version': '2.0.0'}},
         ],
         'discover',
+    )
+    server.tool('add', lambda a, b: a + b)
+    server.resource('file:///project/README.md', lambda: '# Project')
+    is_deeply_ok(
+        dispatch(server, request('server/discover'))['result']['capabilities'],
+        {'tools': {'listChanged': True}, 'resources': {'listChanged': True, 'subscribe': True}},
+        'capabilities',
     )
 
 with subtest('dispatch_p'):
@@ -270,6 +288,52 @@ with subtest('dispatch_p'):
     is_ok(context.status, 400, 'status of the error')
     is_ok(dispatch(server, [request('tools/list')])['error']['code'], -32600, 'batch')
     is_ok(dispatch(server, {**request('tools/list'), 'id': None})['error']['code'], -32600, 'id of null')
+
+
+def subscription(server, notifications):
+    # A subscription of a context of its own, whose notifications the test gets
+    context = Pyjo.MCP.Server.Context.new()
+    sent = []
+    context.stream = sent.append
+    server.dispatch_p(request('subscriptions/listen', notifications=notifications), context)
+    return context, sent
+
+
+with subtest('notify_list_changed'):
+    server = Pyjo.MCP.Server.new()
+    server.tool('add', lambda a, b: a + b)
+    context, sent = subscription(server, {'toolsListChanged': True})
+    count = server.notify_list_changed('tools')
+    is_ok(count, 1, 'count')
+    count = server.notify_list_changed('prompts')
+    is_ok(count, 0, 'count')
+    count = server.notify_list_changed('resources')
+    is_ok(count, 0, 'count')
+
+    server.tools = [tool for tool in server.tools if tool.name != 'add']
+    server.notify_list_changed('tools')
+    is_deeply_ok(
+        [message['method'] for message in sent],
+        [
+            'notifications/subscriptions/acknowledged',
+            'notifications/tools/list_changed',
+            'notifications/tools/list_changed',
+        ],
+        'notifications',
+    )
+    context.cancel()
+
+with subtest('notify_resource_updated'):
+    server = Pyjo.MCP.Server.new()
+    context, sent = subscription(server, {'resourceSubscriptions': ['file:///project/README.md']})
+    count = server.notify_resource_updated('file:///project/README.md')
+    is_ok(count, 1, 'count')
+    is_deeply_ok(
+        sent[1]['params'],
+        {'_meta': {'io.modelcontextprotocol/subscriptionId': 1}, 'uri': 'file:///project/README.md'},
+        'notification',
+    )
+    context.cancel()
 
 with subtest('prompt'):
     server = Pyjo.MCP.Server.new()

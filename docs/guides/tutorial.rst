@@ -176,6 +176,31 @@ Claude Code lists the prompts as commands, as ``/mcp__reviewer__review``,
 which ask for the arguments, and the resources as mentions, as
 ``@reviewer:docs://style``, which put their contents into the conversation.
 
+Subscriptions
+-------------
+
+The lists of a server and its resources can change while it runs. A client
+that wants to know opens a subscription with ``subscriptions/listen``, a
+request that stays in progress, with the notifications that it asks for: of a
+change of the list of the tools, of the prompts or of the resources, and of a
+change of a resource of its URI. The application tells the server what changed
+with :meth:`~Pyjo.MCP.Server.Pyjo_MCP_Server.notify_list_changed` and
+:meth:`~Pyjo.MCP.Server.Pyjo_MCP_Server.notify_resource_updated`, and declares
+that it does with ``list_changed`` and ``subscribe``, which
+``server/discover`` tells the clients:
+
+.. literalinclude:: tutorial/notes.py
+    :language: python
+
+A notification tells only what changed, so the client reads the list or the
+resource again. Over Streamable HTTP, a subscription is a stream of events,
+which a comment keeps open while nothing changes, and which the server ends
+with a response when it stops gracefully. Over the transport stdio, its
+messages share the stream with the others, and the client cancels it with
+``notifications/cancelled``. The subscriptions are those of a worker, a
+process of ``prefork`` or a thread of ``prethread``, so the worker that changes
+a list notifies only its own clients.
+
 Security
 --------
 
@@ -226,7 +251,8 @@ Testing
 that :mod:`Pyjo.MCP.Client` sends: the ``_meta`` and the headers of MCP are
 made for each request, the arguments of a tool are keyword arguments after its
 name, and the assertions check the result, its text, its ``structuredContent``
-and ``isError``, the tools of ``tools/list`` and the errors of JSON-RPC:
+and ``isError``, the tools of ``tools/list``, the notifications of a
+subscription and the errors of JSON-RPC:
 
 .. literalinclude:: tutorial/hello_test.py
     :language: python

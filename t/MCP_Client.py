@@ -262,6 +262,78 @@ with subtest('Resources'):
     is_deeply_ok(error(e), (-32602, 'Resource not found'), 'error of JSON-RPC')
     is_deeply_ok(e.data, {'uri': 'file:///nonexistent.txt'}, 'data of the error')
 
+with subtest('Subscriptions'):
+    c = client()
+    messages = []
+
+    # The application changes the server after the acknowledgment, and the client closes the subscription after the
+    # update of the resource
+    def changes(message):
+        messages.append(message)
+        if message['method'] == 'notifications/subscriptions/acknowledged':
+            Pyjo.IOLoop.next_tick(
+                lambda loop: (
+                    server.notify_list_changed('tools'),
+                    server.notify_resource_updated('file:///project/README.md'),
+                )
+            )
+        return message['method'] != 'notifications/resources/updated'
+
+    notifications = {'toolsListChanged': True, 'resourceSubscriptions': ['file:///project/README.md']}
+    is_ok(c.listen(notifications, changes), None, 'closed by the function')
+    is_ok(sent[-1]['Mcp-Method'], 'subscriptions/listen', 'Mcp-Method')
+    is_deeply_ok(
+        [message['method'] for message in messages],
+        [
+            'notifications/subscriptions/acknowledged',
+            'notifications/tools/list_changed',
+            'notifications/resources/updated',
+        ],
+        'messages',
+    )
+    is_deeply_ok(messages[0]['params']['notifications'], notifications, 'acknowledged')
+    is_ok(messages[2]['params']['uri'], 'file:///project/README.md', 'resource')
+    is_ok(messages[2]['params']['_meta'][Pyjo.MCP.META_SUBSCRIPTION_ID], c._id, 'subscription')
+    Pyjo.Promise.timer(0.01).wait()
+    is_ok(server.notify_list_changed('tools'), 0, 'closed')
+
+    # The server ends the subscription when its event loop stops gracefully
+    def stop(message):
+        Pyjo.IOLoop.next_tick(lambda loop: loop.emit('finish'))
+
+    result = c.listen({'promptsListChanged': True}, stop)
+    is_deeply_ok(
+        result,
+        {
+            'resultType': 'complete',
+            '_meta': {
+                Pyjo.MCP.META_SUBSCRIPTION_ID: c._id,
+                Pyjo.MCP.META_SERVER_INFO: {'name': 'ExampleServer', 'version': '1.0.0'},
+            },
+        },
+        'ended by the server',
+    )
+    results = []
+    c.listen_p({'promptsListChanged': True}, stop).then(results.append).wait()
+    is_ok(results[0]['_meta'][Pyjo.MCP.META_SUBSCRIPTION_ID], c._id, 'non-blocking')
+    c.listen_p({}, lambda message: False).then(lambda result=None: results.append(result)).wait()
+    is_ok(results[1], None, 'non-blocking, closed by the function')
+
+    # A server that drops the subscription, and one that does not have it
+    def drop(c):
+        c.res.headers.content_type = 'text/event-stream'
+        c.write_chunk(Pyjo.SSE.build_event({'text': '{"jsonrpc": "2.0", "method": "notifications/message"}'}))
+        c.write_chunk(b'')
+
+    c = client(application(drop))
+    e = failure(lambda: c.listen({}, lambda message: None))
+    isa_ok(e, Pyjo.Exception.object, 'dropped')
+    like_ok(e.message, r'No response', 'message')
+    c = client(application(None))
+    errors = []
+    c.listen_p({}, lambda message: None).catch(errors.append).wait()
+    is_ok(errors[0].message, '/mcp: 404 Not Found', 'error of HTTP')
+
 with subtest('Meta of the client'):
     c = client(name='ExampleClient', version='2.0.0')
     c.capabilities = {'elicitation': {}}

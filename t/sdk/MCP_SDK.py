@@ -14,8 +14,8 @@ import urllib.request
 
 
 # The client of the MCP SDK, of the dependency group "sdk", calls the server of examples/calculator.py, and the ones of
-# the progress and of the prompts and resources of the tutorial, which run in a process of their own, as the client runs
-# the event loop of asyncio in the process of the test, over Streamable HTTP and over stdio
+# the progress, of the prompts and resources and of the subscriptions of the tutorial, which run in a process of their
+# own, as the client runs the event loop of asyncio in the process of the test, over Streamable HTTP and over stdio
 
 if not importlib.util.find_spec('mcp'):
     plan(skip_all='the MCP SDK is required, as of the dependency group "sdk"')
@@ -26,6 +26,7 @@ from mcp import Client, StdioServerParameters  # noqa: E402
 EXAMPLE = curfile().dirname().dirname().sibling('examples', 'calculator.py').to_str()
 PROGRESS = curfile().dirname().dirname().sibling('docs', 'guides', 'tutorial', 'progress.py').to_str()
 REVIEW = curfile().dirname().dirname().sibling('docs', 'guides', 'tutorial', 'review.py').to_str()
+NOTES = curfile().dirname().dirname().sibling('docs', 'guides', 'tutorial', 'notes.py').to_str()
 
 
 def port():
@@ -82,6 +83,36 @@ async def library(server):
         except Exception as e:
             missing = str(e)
         return prompts, prompt, resources, style, limits, missing
+
+
+async def subscriptions(server):
+    # A subscription to the list of the resources and to one of them, which a tool changes, until the client closes it
+    asyncio.get_running_loop().slow_callback_duration = 5
+    events = []
+    async with Client(server) as mcp:
+        async with mcp.listen(resources_list_changed=True, resource_subscriptions=['notes://all']) as subscription:
+            honored = subscription.honored
+            added = await mcp.call_tool('add_note', {'text': 'Buy milk'})
+            async for event in subscription:
+                events.append(event)
+                if len(events) == 2:
+                    break
+        notes = await mcp.read_resource('notes://all')
+        resources = (await mcp.list_resources()).resources
+    return honored, added, events, notes, resources
+
+
+def check_subscriptions(honored, added, events, notes, resources):
+    ok(honored.resources_list_changed, 'acknowledged list')
+    is_deeply_ok(honored.resource_subscriptions, ['notes://all'], 'acknowledged resources')
+    is_ok(added.structured_content, 1, 'tools/call')
+    is_deeply_ok(
+        [(type(event).__name__, getattr(event, 'uri', None)) for event in events],
+        [('ResourcesListChanged', None), ('ResourceUpdated', 'notes://all')],
+        'notifications',
+    )
+    is_ok(notes.contents[0].text, '* Buy milk\n', 'resource read again')
+    is_deeply_ok([str(resource.uri) for resource in resources], ['notes://all', 'notes://1'], 'list read again')
 
 
 def check_library(prompts, prompt, resources, style, limits, missing):
@@ -164,6 +195,10 @@ with subtest('Prompts and resources over Streamable HTTP'):
     with daemon(REVIEW) as url:
         check_library(*asyncio.run(library(url)))
 
+with subtest('Subscriptions over Streamable HTTP'):
+    with daemon(NOTES) as url:
+        check_subscriptions(*asyncio.run(subscriptions(url)))
+
 # The client starts the server of the command stdio itself, and ends it when it closes its standard input
 with subtest('Client of the MCP SDK over stdio'):
     check(*asyncio.run(session(StdioServerParameters(command=sys.executable, args=[EXAMPLE, 'stdio'], env=env))))
@@ -175,5 +210,10 @@ with subtest('Notifications over stdio'):
 
 with subtest('Prompts and resources over stdio'):
     check_library(*asyncio.run(library(StdioServerParameters(command=sys.executable, args=[REVIEW, 'stdio'], env=env))))
+
+with subtest('Subscriptions over stdio'):
+    check_subscriptions(
+        *asyncio.run(subscriptions(StdioServerParameters(command=sys.executable, args=[NOTES, 'stdio'], env=env)))
+    )
 
 done_testing()

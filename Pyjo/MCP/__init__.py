@@ -70,3 +70,5 @@ META_PROTOCOL_VERSION = 'io.modelcontextprotocol/protocolVersion'
 """The key of ``_meta`` of a request with its revision of the specification."""
 META_SERVER_INFO = 'io.modelcontextprotocol/serverInfo'
 """The key of ``_meta`` of a result with the name and the version of its server."""
+META_SUBSCRIPTION_ID = 'io.modelcontextprotocol/subscriptionId'
+"""The key of ``_meta`` of a message of a subscription with the ``id`` of its request ``subscriptions/listen``."""

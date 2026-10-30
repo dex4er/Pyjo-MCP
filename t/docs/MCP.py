@@ -45,6 +45,7 @@ with subtest('Constants'):
     is_ok(Pyjo.MCP.META_CLIENT_INFO, 'io.modelcontextprotocol/clientInfo', 'META_CLIENT_INFO')
     is_ok(Pyjo.MCP.META_LOG_LEVEL, 'io.modelcontextprotocol/logLevel', 'META_LOG_LEVEL')
     is_ok(Pyjo.MCP.META_SERVER_INFO, 'io.modelcontextprotocol/serverInfo', 'META_SERVER_INFO')
+    is_ok(Pyjo.MCP.META_SUBSCRIPTION_ID, 'io.modelcontextprotocol/subscriptionId', 'META_SUBSCRIPTION_ID')
 
 t.ua.close()
 

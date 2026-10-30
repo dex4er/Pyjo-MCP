@@ -17,7 +17,8 @@ the MIT license.
 
 `Pyjo.MCP.Server` is made on `Pyjo.JSON.RPC` of Pyjoyment: its methods,
 `server/discover`, `tools/list`, `tools/call`, `prompts/list`, `prompts/get`,
-`resources/list` and `resources/read`, are methods of a dispatcher
+`resources/list`, `resources/read` and `subscriptions/listen`, are methods of a
+dispatcher
 of JSON-RPC that get the `Context` of the request, and `dispatch_p` takes a
 message of any transport. A batch and a request with the `id` of `null` are
 invalid requests, as MCP has neither. Each method checks the `_meta` of its
@@ -74,7 +75,10 @@ controller over stdio, so it carries the log of the application, which gets the
 errors of the server that the controller logs over HTTP.
 The `stream` of the `Context` sends a notification of the request with `notify`
 of the client of the peer, so it is a message of the same stream, before the
-response.
+response. `notifications/cancelled` of the peer cancels the `Context` of the
+request of its `requestId`, as a connection that closes does over Streamable
+HTTP, and `serve` drops the response of a cancelled request, as the
+specification asks of a server.
 
 ## The Client
 
@@ -83,8 +87,11 @@ requests itself, with the `_meta` of the client over the one of the
 parameters, and not with the client of `Pyjo.JSON.RPC`, as an id of its own
 and the headers made from the body belong to each request. Its methods block,
 as those of the Perl client, and each has a form `_p` with a promise, as
-`Pyjo.UserAgent` has them. `subscriptions/listen` and the options of the multi
-round-trip requests come with them in the server.
+`Pyjo.UserAgent` has them. `listen` gives the messages of a subscription to a
+function, as `listen` of the Perl client does, which closes it by returning
+`False`, not any false value, as a function of Python that returns nothing
+returns `None`. The options of the multi round-trip requests come with them in
+the server.
 
 A client knows the `x-mcp-header` of a tool only from its definition, so the
 headers `Mcp-Param-{name}` of a call come from `tools`, which the last
@@ -154,8 +161,40 @@ The result of `resources/read` is cacheable, with the `ttlMs` and the
 `cacheScope` of the server, as the results of the lists, and the one of
 `prompts/get` is not, as the specification has them. A resource is a URI of
 its own, as `file:///` or a scheme of the server: the templates of URIs, of
-RFC 6570, with `resources/templates/list`, and the subscriptions to a resource
-come later.
+RFC 6570, with `resources/templates/list`, come later.
+
+## The Subscriptions
+
+`subscriptions/listen` is a request that stays in progress: its method returns
+a promise that the server settles when the subscription ends, gracefully with
+the response that the specification has for it, or with `None` when the client
+cancels it, whose response is not written. The acknowledgment is the first
+notification of the `Context`, which opens the stream of events over Streamable
+HTTP, as any notification does, and the request needs that stream, so a client
+without `text/event-stream` in its `Accept` gets `-32600`. The acknowledgment
+honors every notification that the client asks for, as the MCP SDK does, also
+a resource that the server does not have, which may come later; `list_changed`
+and `subscribe` of the server only declare in `server/discover` that the
+application sends them.
+
+A server ends a subscription with a response, not with `notifications/cancelled`,
+which the page of the cancellation names for it: the page of the subscriptions,
+which describes the graceful closure, gives the response, and so does the MCP
+SDK. Over Streamable HTTP, the event `finish` of the event loop, which a graceful
+stop emits, ends the subscriptions of its connections, as a stream that stays
+open would keep the server waiting until its timeout, and a recurring timer
+writes a comment of the stream every `heartbeat` seconds, which keeps a proxy
+from closing it. Over stdio, the end of the input ends the subscriptions of its
+peer, as `Pyjo.JSON.RPC.serve` closes the stream only once the requests in
+progress have their responses.
+
+The subscriptions are kept in a `threading.local` of the server, as a stream is
+written by the event loop of the thread of its connection, and the threads of
+`Pyjo.Server.Prethread` share the server: `notify_list_changed` and
+`notify_resource_updated` reach the subscriptions of their worker only, a
+process of prefork or a thread of prethread, as the specification asks for no
+more, and an application whose change all its workers must tell, as a file
+that changes, watches it in each of them.
 
 ## The Guides
 
@@ -184,7 +223,8 @@ hides the namespace that `extend_path` keeps open, so it does not find
 
 `t/sdk` runs the client of the MCP SDK, of the dependency group `sdk`, against
 the server of `examples/calculator.py` and the ones of the tutorial, of the
-progress and of the prompts and resources, as an implementation of the
+progress, of the prompts and resources and of the subscriptions, as an
+implementation of the
 specification of its own; without the group, the test is skipped. The server
 runs in a process of its own, as the client runs the event loop of asyncio in
 the process of the test, and the job `sdk` of the workflow Tests runs it:

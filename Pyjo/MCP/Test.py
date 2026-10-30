@@ -271,6 +271,37 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
         """
         return self.mcp_ok('tools/list', headers=headers, meta=meta)
 
+    def listen_ok(
+        self,
+        notifications: dict[str, Any] | None = None,
+        /,
+        *,
+        headers: dict[str, Any] | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> Self:
+        """::
+
+            t = t.listen_ok({'toolsListChanged': True})
+            t = t.listen_ok({'resourceSubscriptions': ['file:///project/README.md']})
+
+        Open a subscription with ``subscriptions/listen``, for the
+        notifications that the filter asks for, with the headers and the
+        ``_meta`` of :meth:`mcp_ok`, and check that its stream of events is
+        established, as :meth:`~Pyjo.Test.Pyjo.Pyjo_Test_Pyjo.post_sse_ok`
+        does. Its messages are the events of the stream, which
+        :meth:`notification_ok` waits for, and
+        :meth:`~Pyjo.Test.Pyjo.Pyjo_Test_Pyjo.sse_finish_ok` closes it. ::
+
+            t.listen_ok({'toolsListChanged': True})
+            t.notification_ok().notification_is('/method', 'notifications/subscriptions/acknowledged')
+            server.notify_list_changed('tools')
+            t.notification_ok().notification_is('/method', 'notifications/tools/list_changed')
+            t.sse_finish_ok()
+        """
+        _, tx = self._build_tx('subscriptions/listen', {'notifications': notifications or {}}, headers, None, meta)
+        self.response = None
+        return self._sse_ok(tx, f'subscriptions/listen {self.client.url}')
+
     def mcp_ok(
         self,
         method: str,
@@ -301,24 +332,7 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
             t.error_code_is(-32022)
         """
         client = self.client
-        client.ua = self.ua
-        request = client.build_request(method, params)
-        if id is not None:
-            request['id'] = id
-        request_meta = cast(dict[str, Any], request['params']['_meta'])
-        for key, value in (meta or {}).items():
-            if value is None:
-                request_meta.pop(key, None)
-            else:
-                request_meta[key] = value
-
-        tx = client.build_tx(request)
-        for name, value in (headers or {}).items():
-            if value is None:
-                tx.req.headers.remove(name)
-            else:
-                tx.req.headers.header(name, value)
-
+        request, tx = self._build_tx(method, params, headers, id, meta)
         notifications: list[dict[str, Any]] = []
 
         def notification(client: Client.object, message: dict[str, Any]) -> None:
@@ -335,6 +349,33 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
             client.unsubscribe('notification', notification)
         self.notifications = notifications
         return self
+
+    def notification_is(self, *args: Any) -> Self:
+        """::
+
+            t = t.notification_is({'jsonrpc': '2.0', 'method': 'notifications/tools/list_changed', 'params': {}})
+            t = t.notification_is('/method', 'notifications/resources/updated')
+            t = t.notification_is('/params/uri', 'file:///project/README.md', 'right resource')
+
+        Check the value of the message of JSON-RPC of the last event of the
+        subscription of :meth:`listen_ok`, a notification, or the response at
+        its end, at a JSON Pointer of :mod:`Pyjo.JSON.Pointer`, which defaults
+        to the whole message.
+        """
+        p, data, desc = _args(args)
+        got = Pyjo.JSON.Pointer.new(_message(self.sse)).get(p)
+        return self.test('is_deeply', got, data, desc or f'exact match for notification "{p}"')
+
+    def notification_ok(self, desc: str | None = None) -> Self:
+        """::
+
+            t = t.notification_ok()
+            t = t.notification_ok('got a notification')
+
+        Wait for the next message of the subscription of :meth:`listen_ok`, as
+        :meth:`~Pyjo.Test.Pyjo.Pyjo_Test_Pyjo.sse_ok` waits for the next event.
+        """
+        return self.sse_ok(desc or 'notification received')
 
     def prompt_exists(self, name: str, desc: str | None = None) -> Self:
         """::
@@ -525,6 +566,35 @@ class Pyjo_MCP_Test(Pyjo.Test.Pyjo.object):
         got = Pyjo.JSON.Pointer.new(self._listed('tools', 'name', name)).get(p)
         return self.test('is_deeply', got, data, desc or f'exact match for tool "{name}" "{p}"')
 
+    def _build_tx(
+        self,
+        method: str,
+        params: dict[str, Any] | None,
+        headers: dict[str, Any] | None,
+        id: Any,
+        meta: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any], Any]:
+        # A request of the client and its transaction, with the id, the _meta and the headers that replace its own
+        client = self.client
+        client.ua = self.ua
+        request = client.build_request(method, params)
+        if id is not None:
+            request['id'] = id
+        request_meta = cast(dict[str, Any], request['params']['_meta'])
+        for key, value in (meta or {}).items():
+            if value is None:
+                request_meta.pop(key, None)
+            else:
+                request_meta[key] = value
+
+        tx = client.build_tx(request)
+        for name, value in (headers or {}).items():
+            if value is None:
+                tx.req.headers.remove(name)
+            else:
+                tx.req.headers.header(name, value)
+        return request, tx
+
     def _response_value(self, p: str) -> Any:
         return Pyjo.JSON.Pointer.new(self.response).get(p)
 
@@ -555,6 +625,14 @@ def _args(args: tuple[Any, ...]) -> tuple[str, Any, str | None]:
     if len(values) > 1:
         return values[0], values[1], values[2] if len(values) > 2 else None
     return '', values[0] if len(values) else None, None
+
+
+def _message(event: Any) -> Any:
+    # The message of JSON-RPC of an event, or None
+    try:
+        return Pyjo.JSON.decode_json(_object(event).get('text') or '')
+    except ValueError:
+        return None
 
 
 def _object(value: Any) -> dict[str, Any]:

@@ -50,6 +50,12 @@ protocol is stateless: each request carries its revision and the capabilities
 of its client in its ``_meta``, which the server checks, and a result carries
 the name and the version of the server in its own ``_meta``.
 
+A client that wants to know of the changes of the server opens a subscription
+with ``subscriptions/listen``, a request that stays in progress, whose stream
+gets the notifications of :meth:`~Pyjo_MCP_Server.notify_list_changed` and
+:meth:`~Pyjo_MCP_Server.notify_resource_updated` that the client asks for,
+until the client cancels it or the server stops.
+
 The requests come over Streamable HTTP, the transport of
 :meth:`~Pyjo_MCP_Server.to_action`, an action of a route of :mod:`Pyjoyment`,
 which answers each request with a JSON object, or with a stream of events when
@@ -78,6 +84,7 @@ Classes
 
 import Pyjo.EventEmitter
 import Pyjo.Exception
+import Pyjo.IOLoop
 import Pyjo.IOLoop.Messages
 import Pyjo.JSON
 import Pyjo.JSON.RPC
@@ -94,6 +101,7 @@ import base64
 import binascii
 import builtins
 import re
+import threading
 
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Self, cast, overload
@@ -132,8 +140,9 @@ class Context(Pyjo.EventEmitter.object):
             ...
 
     Emitted once when the client abandons the request, as when it closes the
-    connection of a response of Streamable HTTP before the result, so that a
-    tool that runs long stops. ::
+    connection of a response of Streamable HTTP before the result, or sends
+    ``notifications/cancelled`` of the request over the transport stdio, so
+    that a tool that runs long stops. ::
 
         id = Pyjo.IOLoop.recurring(1, lambda: ...)
         context.on('cancelled', lambda context: Pyjo.IOLoop.remove(id))
@@ -189,6 +198,15 @@ class Context(Pyjo.EventEmitter.object):
 
         The :mod:`Pyjoyment.Controller` of the request of HTTP, or ``None`` for
         another transport.
+        """
+
+        self.id: Any = None
+        """::
+
+            id = context.id
+
+        The ``id`` of the request of JSON-RPC, which the messages of its
+        subscription name, or ``None`` for a notification.
         """
 
         self.log = log
@@ -384,6 +402,18 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         ``tools/list``, in milliseconds, ``0`` by default.
         """
 
+        self.heartbeat: float = 30
+        """::
+
+            interval = server.heartbeat
+            server.heartbeat = 15
+
+        How often a subscription of Streamable HTTP sends a comment of the
+        stream of events, which keeps a connection without notifications from
+        being closed by a proxy, in seconds, ``30`` by default, or ``0`` for
+        never.
+        """
+
         self.instructions = instructions
         """::
 
@@ -392,6 +422,17 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
 
         How a language model uses the server, which ``server/discover`` gives,
         or ``None``.
+        """
+
+        self.list_changed = False
+        """::
+
+            boolean = server.list_changed
+            server.list_changed = True
+
+        Whether ``server/discover`` declares ``listChanged`` of the tools, the
+        prompts and the resources, a promise that the application calls
+        :meth:`notify_list_changed` when it changes a list, false by default.
         """
 
         self.name = name
@@ -421,6 +462,17 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         ``resources/list``.
         """
 
+        self.subscribe = False
+        """::
+
+            boolean = server.subscribe
+            server.subscribe = True
+
+        Whether ``server/discover`` declares ``subscribe`` of the resources, a
+        promise that the application calls :meth:`notify_resource_updated`
+        when a resource changes, false by default.
+        """
+
         self.tools: list[Tool.object] = []
         """::
 
@@ -447,8 +499,11 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         rpc.method('prompts/get', self._prompts_get, context=True)
         rpc.method('resources/list', self._resources_list, context=True)
         rpc.method('resources/read', self._resources_read, context=True)
-        # TODO: resources/templates/list, with the URI templates of RFC 6570, and the subscriptions to a resource, with
-        # subscriptions/listen
+        rpc.method('subscriptions/listen', self._listen, context=True)
+        # TODO: resources/templates/list, with the URI templates of RFC 6570
+
+        # The subscriptions of each thread, as a notification is written by the event loop of the thread of its stream
+        self._local = threading.local()
 
         def exception(rpc: Pyjo.JSON.RPC.object, e: Exception, context: Any) -> None:
             self._exception(e, context)
@@ -476,7 +531,44 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
                 pass
         if isinstance(message, list) or ('id' in _object(message) and _object(message)['id'] is None):
             return Pyjo.Promise.resolve(_error(None, Pyjo.JSON.RPC.INVALID_REQUEST, 'Invalid Request'))
+        context.id = _object(message).get('id')
         return self._rpc.dispatch_p(message, context)
+
+    def notify_list_changed(self, kind: str) -> int:
+        """::
+
+            count = server.notify_list_changed('tools')
+            count = server.notify_list_changed('prompts')
+            count = server.notify_list_changed('resources')
+
+        Send ``notifications/tools/list_changed``, or the one of the prompts
+        or of the resources, to the subscriptions that want it, after a change
+        of :attr:`tools`, :attr:`prompts` or :attr:`resources`, and return how
+        many got it. The subscriptions are those of the process and of the
+        thread, as each worker of a server that has several has its own. ::
+
+            server.tools = [tool for tool in server.tools if tool.name != 'add']
+            server.notify_list_changed('tools')
+        """
+        if (key := _LIST_CHANGED.get(kind)) is None:
+            raise Pyjo.Exception.new(f'Unknown list: {kind}')
+        return self._notify(lambda notifications: notifications.get(key) is True, f'notifications/{kind}/list_changed')
+
+    def notify_resource_updated(self, uri: str) -> int:
+        """::
+
+            count = server.notify_resource_updated('file:///project/README.md')
+
+        Send ``notifications/resources/updated`` of the URI to the
+        subscriptions that want it, after a change of the contents of the
+        resource, which the client reads again, and return how many got it, as
+        :meth:`notify_list_changed` does.
+        """
+
+        def wants(notifications: dict[str, Any]) -> bool:
+            return uri in notifications.get('resourceSubscriptions', [])
+
+        return self._notify(wants, 'notifications/resources/updated', {'uri': uri})
 
     @overload
     def prompt[F: Callable[..., Any]](self, name: F, cb: None = None) -> F: ...
@@ -563,23 +655,54 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         :meth:`~Pyjo.JSON.RPC.Pyjo_JSON_RPC.serve` does, with the rules of
         :meth:`dispatch_p` and a :class:`Context` of its own for each request,
         whose ``client`` is the one of the peer and whose ``log`` gets the
-        errors of the server. ::
+        errors of the server. ``notifications/cancelled`` of the peer cancels
+        the :class:`Context` of its request, which gets no response then, and
+        the end of the input of the peer ends its subscriptions gracefully,
+        with their responses. ::
 
             # The transport stdio, a message on each line of the standard input and output
             messages = Pyjo.IOLoop.Messages.new(Pyjo.IOLoop.Stdio.new())
             server.serve(messages)
             messages.start()
         """
+        contexts: dict[Any, Context] = {}
 
-        # TODO: notifications/cancelled of the peer, which cancels the Context of the request of its requestId, as a
-        # connection that closes does over Streamable HTTP
-        def dispatch_p(message: Any, client: Pyjo.JSON.RPC.Client) -> Pyjo.Promise.object:
+        def dispatch_p(message: Any, client: Pyjo.JSON.RPC.Client) -> Any:
+            # The cancellation of a request in progress, as a connection that closes is over Streamable HTTP
+            if (message_ := _object(message)).get('method') == 'notifications/cancelled':
+                if (context := contexts.get(_id(_object(message_.get('params')).get('requestId')))) is not None:
+                    context.cancel()
+                return None
+
             # The notifications of a request go to the peer, on the same stream
             context = Context(client=client, log=log)
             context.stream = lambda notification: client.notify(notification['method'], **notification['params'])
-            return self.dispatch_p(message, context)
+            if (id := _id(message_.get('id'))) is not None:
+                contexts[id] = context
 
-        return self._rpc.serve(peer, dispatch_p=dispatch_p)
+            def respond(response: Any = None) -> Any:
+                if contexts.get(id) is context:
+                    del contexts[id]
+                return None if context.is_cancelled else response
+
+            return self.dispatch_p(message, context).then(respond)
+
+        client = self._rpc.serve(peer, dispatch_p=dispatch_p)
+
+        # The end of the input, after which the requests in progress get their responses, ends the subscriptions
+        def end(peer: Any) -> None:
+            for subscription in list(self._subscriptions):
+                if subscription.context.client is client:
+                    subscription.end()
+
+        # A stream that closes abandons its requests
+        def close(peer: Any, *args: Any) -> None:
+            for context in list(contexts.values()):
+                context.cancel()
+
+        peer.on('end', end)
+        peer.on('close', close)
+        return client
 
     @overload
     def tool[F: Callable[..., Any]](self, name: F, cb: None = None) -> F: ...
@@ -641,7 +764,11 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         response into a stream of events, ``text/event-stream``, where the
         ``Accept`` of the request has it, with the notifications and then the
         response, and a connection that closes before the result cancels the
-        :class:`Context`. ::
+        :class:`Context`. A subscription of ``subscriptions/listen`` is such a
+        stream, which needs the ``Accept`` and stays open, with a comment every
+        :attr:`heartbeat` seconds, until the client closes the connection, or
+        until the event loop stops gracefully, which ends the subscription with
+        its response. ::
 
             # Pyjoyment.Lite
             any('/mcp', server.to_action())
@@ -746,12 +873,13 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
     def _discover(self, context: Context, **params: Any) -> dict[str, Any]:
         self._meta(context, params)
         capabilities: dict[str, Any] = {}
+        listed: dict[str, Any] = {'listChanged': True} if self.list_changed else {}
         if self.tools:
-            capabilities['tools'] = {}
+            capabilities['tools'] = {**listed}
         if self.prompts:
-            capabilities['prompts'] = {}
+            capabilities['prompts'] = {**listed}
         if self.resources:
-            capabilities['resources'] = {}
+            capabilities['resources'] = {**listed, **({'subscribe': True} if self.subscribe else {})}
         result: dict[str, Any] = {'supportedVersions': list(MCP.SUPPORTED_VERSIONS), 'capabilities': capabilities}
         if self.instructions is not None:
             result['instructions'] = self.instructions
@@ -810,6 +938,58 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
                     return f"Mcp-Param-{name} header value '{decoded}' does not match body value '{body}'"
         return None
 
+    def _listen(self, context: Context, **params: Any) -> Pyjo.Promise.object:
+        self._meta(context, params)
+        if context.stream is None:
+            raise Pyjo.JSON.RPC.Error.new(Pyjo.JSON.RPC.INVALID_REQUEST, 'Subscriptions need a stream of events')
+
+        # The notifications that the server sends, every one that the client asks for
+        notifications = _object(params.get('notifications'))
+        honored: dict[str, Any] = {key: True for key in _LIST_CHANGED.values() if notifications.get(key) is True}
+        uris = notifications.get('resourceSubscriptions')
+        if uris := [uri for uri in cast(list[Any], uris) if isinstance(uri, str)] if isinstance(uris, list) else []:
+            honored['resourceSubscriptions'] = uris
+
+        promise = Pyjo.Promise.new()
+        subscriptions = self._subscriptions
+        loop = Pyjo.IOLoop.singleton
+        timer: str | None = None
+        finish: Any = None
+
+        def remove() -> None:
+            if subscription in subscriptions:
+                subscriptions.remove(subscription)
+            if timer is not None:
+                loop.remove(timer)
+            if finish is not None:
+                loop.unsubscribe('finish', finish)
+
+        # The server ends the subscription gracefully with its response
+        def end() -> None:
+            remove()
+            promise.resolve(self._result({'_meta': {MCP.META_SUBSCRIPTION_ID: context.id}}))
+
+        # The client ends it without one
+        def cancelled(context: Context) -> None:
+            remove()
+            promise.resolve(None)
+
+        context.on('cancelled', cancelled)
+        subscription = _Subscription(context, honored, end)
+        subscriptions.append(subscription)
+        subscription.notify('notifications/subscriptions/acknowledged', {'notifications': honored})
+
+        # A connection of HTTP gets the comments that keep it open, and ends with a graceful stop of the event loop
+        if (c := context.controller) is not None:
+            if self.heartbeat:
+                timer = loop.recurring(self.heartbeat, lambda loop: c.write_sse({'comment': 'keepalive'}))
+
+            def stopping(loop: Any) -> None:
+                end()
+
+            finish = loop.once('finish', stopping)
+        return promise
+
     def _meta(self, context: Context, params: dict[str, Any]) -> None:
         # The fields of _meta of the request, which every request has
         meta_ = _object(params.get('_meta'))
@@ -832,6 +1012,16 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         context.client_info = _object(info)
         context.log_level = level if isinstance(level := meta_.get(MCP.META_LOG_LEVEL), str) else None
         context.progress_token = meta_.get('progressToken')
+
+    def _notify(
+        self, wants: Callable[[dict[str, Any]], bool], method: str, params: dict[str, Any] | None = None
+    ) -> int:
+        # A notification to the subscriptions that want it
+        return sum(
+            subscription.notify(method, params)
+            for subscription in list(self._subscriptions)
+            if wants(subscription.notifications)
+        )
 
     def _result(self, result: dict[str, Any], cacheable: bool = False) -> dict[str, Any]:
         # A result with its type, the name and the version of the server, and the hints of the cache
@@ -881,6 +1071,12 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
 
         return resource.read_p(context).then(result)
 
+    @property
+    def _subscriptions(self) -> list['_Subscription']:
+        if (subscriptions := getattr(self._local, 'subscriptions', None)) is None:
+            subscriptions = self._local.subscriptions = []
+        return cast(list[_Subscription], subscriptions)
+
     def _tool(self, name: str | None, cb: Callable[..., Any], options: dict[str, Any]) -> Callable[..., Any]:
         self.tools.append(Tool.new(cb, name=name, **options))
         return cb
@@ -900,6 +1096,22 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         self._cursor(params)
         return self._result({'tools': [tool.__json__() for tool in self.tools]}, cacheable=True)
 
+
+class _Subscription:
+    # A subscription of subscriptions/listen, whose messages name its request, which the server ends with end
+    __slots__ = ('context', 'end', 'notifications')
+
+    def __init__(self, context: Context, notifications: dict[str, Any], end: Callable[[], None]) -> None:
+        self.context = context
+        self.end = end
+        self.notifications = notifications
+
+    def notify(self, method: str, params: dict[str, Any] | None = None) -> bool:
+        return self.context.notify(method, {'_meta': {MCP.META_SUBSCRIPTION_ID: self.context.id}, **(params or {})})
+
+
+# The filters of the notifications of the changes of the lists of a subscription
+_LIST_CHANGED = {'tools': 'toolsListChanged', 'prompts': 'promptsListChanged', 'resources': 'resourcesListChanged'}
 
 # The levels of the log messages of a client, as the ones of syslog
 _LEVELS = {
@@ -928,6 +1140,11 @@ def _decode(value: str) -> str | None:
 
 def _error(id: Any, code: int, message: str) -> dict[str, Any]:
     return {'jsonrpc': '2.0', 'id': id, 'error': {'code': code, 'message': message}}
+
+
+def _id(id: Any) -> str | int | None:
+    # An id of JSON-RPC, a string or a number, or None for another value
+    return id if isinstance(id, str | int) and not isinstance(id, bool) else None
 
 
 def _object(value: Anything) -> dict[str, Any]:

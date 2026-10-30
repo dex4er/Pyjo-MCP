@@ -1,6 +1,9 @@
 import Pyjo.EventEmitter
+import Pyjo.Exception
+import Pyjo.IOLoop
 import Pyjo.Log
 import Pyjo.MCP
+import Pyjo.MCP.Client
 import Pyjo.MCP.Server
 import Pyjo.MCP.Test
 import Pyjo.MCP.Tool
@@ -547,6 +550,175 @@ with subtest('Notifications'):
         ['notifications/message', 'notifications/progress', 'Done'],
         'notifications over stdio',
     )
+
+with subtest('Subscriptions'):
+    # A server of its own, whose application changes its lists and its resources
+    listening = Pyjo.MCP.Server.new(name='ExampleServer')
+    listening.tool('add', add)
+    listening.resource('file:///project/config.json', lambda: {'debug': False})
+    listening.heartbeat = 0.05
+    subscribed = Pyjoyment.new()
+    subscribed.log.level = 'fatal'
+    subscribed.routes.any('/mcp').to(cb=listening.to_action())
+    s = Pyjo.MCP.Test.new(subscribed)
+
+    s.discover_ok().status_is(200).result_is('/capabilities', {'tools': {}, 'resources': {}})
+    listening.list_changed = listening.subscribe = True
+    s.discover_ok().status_is(200)
+    s.result_is(
+        '/capabilities', {'tools': {'listChanged': True}, 'resources': {'listChanged': True, 'subscribe': True}}
+    )
+
+    # The example of the specification
+    notifications = {'toolsListChanged': True, 'resourceSubscriptions': ['file:///project/config.json']}
+    s.listen_ok(notifications).status_is(200)
+    s.header_is('Content-Type', 'text/event-stream').header_is('X-Accel-Buffering', 'no')
+    id = s.client._id
+    s.notification_ok().notification_is(
+        {
+            'jsonrpc': '2.0',
+            'method': 'notifications/subscriptions/acknowledged',
+            'params': {'_meta': {'io.modelcontextprotocol/subscriptionId': id}, 'notifications': notifications},
+        }
+    )
+    is_ok(listening.notify_list_changed('tools'), 1, 'one subscription')
+    is_ok(listening.notify_list_changed('prompts'), 0, 'not asked for')
+    is_ok(listening.notify_resource_updated('file:///project/other.json'), 0, 'another resource')
+    is_ok(listening.notify_resource_updated('file:///project/config.json'), 1, 'resource')
+    s.notification_ok().notification_is(
+        {
+            'jsonrpc': '2.0',
+            'method': 'notifications/tools/list_changed',
+            'params': {'_meta': {'io.modelcontextprotocol/subscriptionId': id}},
+        }
+    )
+    s.notification_ok().notification_is('/method', 'notifications/resources/updated')
+    s.notification_is(
+        '/params',
+        {'_meta': {'io.modelcontextprotocol/subscriptionId': id}, 'uri': notifications['resourceSubscriptions'][0]},
+    )
+    s.sse_finish_ok()
+    Pyjo.Promise.timer(0.01).wait()
+    is_ok(listening.notify_list_changed('tools'), 0, 'closed by the client')
+
+    try:
+        listening.notify_list_changed('templates')
+    except Pyjo.Exception.object as e:
+        is_ok(e.message, 'Unknown list: templates', 'unknown list')
+    else:
+        fail('unknown list')
+
+    # A subscription that the server ends gracefully, when its event loop stops, with the comments that keep it open
+    client = Pyjo.MCP.Client.new('/mcp', ua=s.ua)
+    request = client.build_request(
+        'subscriptions/listen',
+        {'notifications': {'promptsListChanged': True, 'toolsListChanged': 'yes', 'resourceSubscriptions': ['a', 1]}},
+    )
+    tx = client.build_tx(request)
+    read = []
+    events = []
+    tx.on('connection', lambda tx, id: s.ua.ioloop.stream(id).on('read', lambda stream, chunk: read.append(chunk)))
+    tx.res.content.on('sse', lambda content, event=None: event and events.append(json.loads(event['text'])))
+    s.ua.start(tx, lambda ua, tx: None)
+    Pyjo.Promise.timer(0.2).wait()
+    ok(b''.join(read).count(b'\r\n: keepalive\r\n') > 1, 'comments of the stream of events')
+    is_deeply_ok(
+        events[0]['params']['notifications'], {'promptsListChanged': True, 'resourceSubscriptions': ['a']}, 'honored'
+    )
+    Pyjo.IOLoop.singleton.emit('finish')
+    Pyjo.Promise.timer(0.05).wait()
+    is_deeply_ok(
+        events[-1],
+        {
+            'jsonrpc': '2.0',
+            'id': request['id'],
+            'result': {
+                'resultType': 'complete',
+                '_meta': {'io.modelcontextprotocol/subscriptionId': request['id'], **SERVER_INFO},
+            },
+        },
+        'response at the end',
+    )
+    ok(tx.is_finished, 'stream closed')
+    is_ok(listening.notify_list_changed('prompts'), 0, 'ended by the server')
+
+    s.mcp_ok('subscriptions/listen', {'notifications': {}}, headers={'Accept': 'application/json'}).status_is(400)
+    s.error_is({'code': -32600, 'message': 'Subscriptions need a stream of events'})
+    s.mcp_ok('subscriptions/listen', meta={'io.modelcontextprotocol/protocolVersion': None}).status_is(400)
+    s.error_message_is('Missing protocol version')
+    s.ua.close()
+
+    # The transport stdio, whose subscriptions share the stream, and whose client cancels its requests
+    peer = Messages()
+    listening.serve(peer)
+    waiting = []
+
+    @listening.tool(context=True)
+    def wait(context) -> str:
+        promise = Pyjo.Promise.new()
+        waiting.append((context, promise))
+        return promise
+
+    def listen(id, notifications):
+        params = {'_meta': META, 'notifications': notifications}
+        return {'jsonrpc': '2.0', 'id': id, 'method': 'subscriptions/listen', 'params': params}
+
+    peer.emit('message', json.dumps(listen(1, {'toolsListChanged': True})))
+    peer.emit('message', json.dumps(listen('two', {'resourcesListChanged': True})))
+    Pyjo.Promise.timer(0.01).wait()
+    is_ok(listening.notify_list_changed('tools'), 1, 'first subscription')
+    is_ok(listening.notify_list_changed('resources'), 1, 'second subscription')
+    is_deeply_ok(
+        [
+            (message['method'], message['params']['_meta']['io.modelcontextprotocol/subscriptionId'])
+            for message in peer.sent
+        ],
+        [
+            ('notifications/subscriptions/acknowledged', 1),
+            ('notifications/subscriptions/acknowledged', 'two'),
+            ('notifications/tools/list_changed', 1),
+            ('notifications/resources/list_changed', 'two'),
+        ],
+        'messages of each subscription',
+    )
+    cancel = {'jsonrpc': '2.0', 'method': 'notifications/cancelled', 'params': {'requestId': 1}}
+    peer.emit('message', json.dumps(cancel))
+    Pyjo.Promise.timer(0.01).wait()
+    is_ok(listening.notify_list_changed('tools'), 0, 'cancelled')
+
+    params = {'name': 'wait', 'arguments': {}, '_meta': META}
+    peer.emit('message', json.dumps({'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call', 'params': params}))
+    peer.emit('message', json.dumps({**cancel, 'params': {'requestId': 3, 'reason': 'Too long'}}))
+    peer.emit('message', json.dumps({**cancel, 'params': {'requestId': 4}}))
+    waiting[0][1].resolve('Done')
+    Pyjo.Promise.timer(0.01).wait()
+    ok(waiting[0][0].is_cancelled, 'tool cancelled')
+    is_ok(len(peer.sent), 4, 'no responses of cancelled requests')
+
+    peer.emit('end')
+    Pyjo.Promise.timer(0.01).wait()
+    is_deeply_ok(
+        peer.sent[4],
+        {
+            'jsonrpc': '2.0',
+            'id': 'two',
+            'result': {
+                'resultType': 'complete',
+                '_meta': {'io.modelcontextprotocol/subscriptionId': 'two', **SERVER_INFO},
+            },
+        },
+        'response at the end of the input',
+    )
+    is_ok(listening.notify_list_changed('resources'), 0, 'ended')
+
+    # A stream that closes abandons its subscriptions
+    peer = Messages()
+    listening.serve(peer)
+    peer.emit('message', json.dumps(listen(1, {'toolsListChanged': True})))
+    Pyjo.Promise.timer(0.01).wait()
+    peer.emit('close')
+    is_ok(listening.notify_list_changed('tools'), 0, 'closed')
+    is_ok(len(peer.sent), 1, 'only the acknowledgment')
 
 with subtest('Transport'):
     t.get_ok('/mcp').status_is(405).header_is('Allow', 'POST').json_is('/error/code', -32600)
