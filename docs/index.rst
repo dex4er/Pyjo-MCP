@@ -3,6 +3,11 @@
 
 .. toctree::
     :maxdepth: 1
+
+    installation
+
+.. toctree::
+    :maxdepth: 1
     :caption: Guides
 
     guides/tutorial

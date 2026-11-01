@@ -19,11 +19,23 @@ for [Pyjoyment](https://github.com/dex4er/Pyjoyment), of the revision
 
 ## Installation
 
-From the Git repository, as the distribution is not on PyPI yet; Pyjoyment
-comes from [PyPI](https://pypi.org/project/Pyjoyment/):
+From [PyPI](https://pypi.org/project/Pyjo-MCP/), with
+[Pyjoyment](https://pypi.org/project/Pyjoyment/), which it depends on:
 
 ```sh
-uv add git+https://github.com/dex4er/Pyjo-MCP
+pip install Pyjo-MCP
+```
+
+or, in a project managed with [uv](https://docs.astral.sh/uv/):
+
+```sh
+uv add Pyjo-MCP
+```
+
+The development version is installed from the Git repository:
+
+```sh
+pip install git+https://github.com/dex4er/Pyjo-MCP
 ```
 
 ## Usage
