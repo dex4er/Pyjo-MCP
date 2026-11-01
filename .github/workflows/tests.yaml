@@ -17,42 +17,11 @@ permissions:
   contents: read
 
 jobs:
-  # The Pyjoyment to test against: the release of uv.lock, with which the
-  # distribution is installed, and its tag, whose tests the job prove runs; or
-  # the ref of a dispatch, whose checkout is laid over the release with
-  # `--with-editable`, so that the checkout is what is tested.
-  pyjoyment:
-    name: pyjoyment
-
-    runs-on: ubuntu-26.04-arm
-    timeout-minutes: 5
-
-    outputs:
-      ref: ${{ steps.resolve.outputs.ref }}
-      editable: ${{ steps.resolve.outputs.editable }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Resolve the ref of Pyjoyment
-        id: resolve
-        shell: bash
-        env:
-          REF: ${{ inputs.pyjoyment-ref }}
-        run: |-
-          if [ -n "$REF" ]; then
-            echo "ref=$REF" >> "$GITHUB_OUTPUT"
-            echo "editable=../Pyjoyment" >> "$GITHUB_OUTPUT"
-          else
-            python3 -c 'import tomllib; print("ref=" + next(p["version"] for p in tomllib.load(open("uv.lock", "rb"))["package"] if p["name"] == "pyjoyment"))' >> "$GITHUB_OUTPUT"
-          fi
-
-  # The tests of the distribution, and the whole suite of Pyjoyment with the
-  # distribution installed, as its package is in the namespace of Pyjoyment.
+  # The tests of the distribution, against the release of Pyjoyment of
+  # uv.lock. Not the suite of Pyjoyment, which nothing of the distribution
+  # changes, unlike the one of a reactor, which runs on it.
   prove:
     name: prove (python ${{ matrix.python }})
-    needs: pyjoyment
 
     strategy:
       fail-fast: false
@@ -74,11 +43,14 @@ jobs:
         with:
           path: Pyjo-MCP
 
+      # The ref of a dispatch, whose checkout is laid over the release with
+      # `--with-editable`, so that the checkout is what is tested.
       - name: Checkout Pyjoyment
+        if: ${{ inputs.pyjoyment-ref }}
         uses: actions/checkout@v7
         with:
           repository: dex4er/Pyjoyment
-          ref: ${{ needs.pyjoyment.outputs.ref }}
+          ref: ${{ inputs.pyjoyment-ref }}
           path: Pyjoyment
 
       - name: Set up Python
@@ -105,27 +77,15 @@ jobs:
         env:
           PYTHONDEVMODE: "1"
           PYTHONWARNINGS: error::SyntaxWarning,error::DeprecationWarning
-          PYJOYMENT: ${{ needs.pyjoyment.outputs.editable }}
+          PYJOYMENT: ${{ inputs.pyjoyment-ref && '../Pyjoyment' || '' }}
         run: |
           mkdir -p "$GITHUB_WORKSPACE/junit"
           uv run ${PYJOYMENT:+--with-editable "$PYJOYMENT"} python -m Pyjo.Prove -l --color --timeout 60 --capture-stderr --formatter "junit=$GITHUB_WORKSPACE/junit/pyjo-mcp.xml" --formatter "markdown=$GITHUB_STEP_SUMMARY" -r t 2>&1 | tee prove.log
           if grep -n 'ResourceWarning:' prove.log; then exit 1; fi
 
-      - name: Run the tests of Pyjoyment with the distribution
-        working-directory: Pyjoyment
-        shell: bash
-        env:
-          PYTHONDEVMODE: "1"
-          PYTHONWARNINGS: error::SyntaxWarning,error::DeprecationWarning
-          TEST_ONLINE: "1"
-        run: |-
-          uv run --project ../Pyjo-MCP --with-editable . python -m Pyjo.Prove -l --color -j 4 --timeout 60 --capture-stderr --stderr-lines 1000 --formatter "junit=$GITHUB_WORKSPACE/junit/pyjoyment.xml" --formatter "markdown=$GITHUB_STEP_SUMMARY" -r t 2>&1 | tee prove.log
-          if grep -n 'ResourceWarning:' prove.log; then exit 1; fi
-
-      # As in Pyjoyment: the JUnit XML of the harness, of the tests of the
-      # distribution and of Pyjoyment, as the annotations of the failed tests,
-      # without a check of its own, and without the summary of the job, which
-      # the harness writes itself with its formatter markdown
+      # As in Pyjoyment: the JUnit XML of the harness, as the annotations of the
+      # failed tests, without a check of its own, and without the summary of the
+      # job, which the harness writes itself with its formatter markdown
       - name: Publish the report of the tests
         if: ${{ !cancelled() }}
         uses: mikepenz/action-junit-report@v6
@@ -136,8 +96,7 @@ jobs:
           include_skipped: false
 
       # The JUnit XML for the summary of the summaries of all the jobs, which
-      # the job report makes, both files in one directory, as its script reads
-      # the files of the directory of each job only
+      # the job report makes
       - name: Upload the report of the tests
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
@@ -152,7 +111,6 @@ jobs:
   # own, on the newest Python of the matrix.
   sdk:
     name: sdk (python 3.15)
-    needs: pyjoyment
 
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 15
@@ -163,11 +121,13 @@ jobs:
         with:
           path: Pyjo-MCP
 
+      # As above.
       - name: Checkout Pyjoyment
+        if: ${{ inputs.pyjoyment-ref }}
         uses: actions/checkout@v7
         with:
           repository: dex4er/Pyjoyment
-          ref: ${{ needs.pyjoyment.outputs.ref }}
+          ref: ${{ inputs.pyjoyment-ref }}
           path: Pyjoyment
 
       - name: Set up Python
@@ -191,7 +151,7 @@ jobs:
         env:
           PYTHONDEVMODE: "1"
           PYTHONWARNINGS: error::SyntaxWarning,error::DeprecationWarning
-          PYJOYMENT: ${{ needs.pyjoyment.outputs.editable }}
+          PYJOYMENT: ${{ inputs.pyjoyment-ref && '../Pyjoyment' || '' }}
         run: |
           mkdir -p "$GITHUB_WORKSPACE/junit"
           uv run --group sdk ${PYJOYMENT:+--with-editable "$PYJOYMENT"} python -m Pyjo.Prove -l --color --timeout 120 --capture-stderr --formatter "junit=$GITHUB_WORKSPACE/junit/sdk.xml" --formatter "markdown=$GITHUB_STEP_SUMMARY" -r t/sdk 2>&1 | tee prove.log
@@ -289,7 +249,6 @@ jobs:
   tests:
     name: Tests
     needs:
-      - pyjoyment
       - prove
       - sdk
     if: always()
