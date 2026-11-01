@@ -82,8 +82,8 @@ lint:
       run_timeout: 1m
   enabled:
     - actionlint@1.17.0
-    # The version of package.json, which Renovate bumps in both, and which the
-    # ! keeps from trunk upgrade
+    # Renovate bumps it, and Biome Migrate migrates biome.jsonc on its branch;
+    # the ! keeps it from trunk upgrade
     - biome@2.6.4! # datasource=npm depName=@biomejs/biome
     - git-diff-check
     - pyright@1.1.414

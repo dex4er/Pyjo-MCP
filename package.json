@@ -1,9 +1,0 @@
-{
-  "name": "pyjo-mcp-tools",
-  "private": true,
-  "description": "Biome, which formats and lints JSON, Markdown and YAML, with the version that Renovate bumps together with the one of .trunk/trunk.yaml",
-  "license": "Artistic-2.0",
-  "devDependencies": {
-    "@biomejs/biome": "2.6.4"
-  }
-}

@@ -3,8 +3,6 @@
   "files": {
     "includes": [
       "**",
-      // The lock of npm, which npm writes
-      "!**/package-lock.json",
       // Rewritten by trunk upgrade
       "!**/.trunk"
     ]

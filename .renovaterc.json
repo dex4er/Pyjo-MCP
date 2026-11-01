@@ -36,11 +36,6 @@
       "matchManagers": ["pep621"],
       "matchDepTypes": ["requires-python"],
       "enabled": false
-    },
-    {
-      "description": "Biome, in package.json and in .trunk/trunk.yaml, in one pull request, on whose branch Biome Migrate migrates biome.jsonc to the new version.",
-      "matchPackageNames": ["@biomejs/biome"],
-      "groupName": "Biome"
     }
   ],
   "customManagers": [
