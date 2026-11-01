@@ -810,7 +810,7 @@ docs = ">=3.14"
 requires-dist = [{ name = "pyjoyment", specifier = ">=0.1.0" }]
 
 [package.metadata.requires-dev]
-docs = [{ name = "sphinx", marker = "python_full_version >= '3.14'", specifier = ">=9.1.1" }]
+docs = [{ name = "sphinx", marker = "python_full_version >= '3.14'", specifier = ">=9.2.0" }]
 sdk = [{ name = "mcp", specifier = ">=2.3.0" }]
 
 [[package]]
