@@ -400,10 +400,15 @@ the distribution.
 
 Release builds the sdist and the wheel, attests their build provenance with
 `actions/attest`, and makes a draft of the GitHub release with them, whose
-notes are rewritten before it is published. It has no SBOM, unlike the one of
-Pyjoyment, whose SBOM lists the JavaScript libraries that its package bundles:
-the package of this distribution has nothing of others, and its dependencies
-are those of its metadata.
+notes are rewritten before it is published, and an SBOM in SPDX, attested
+with them. The package bundles nothing, unlike the one of Pyjoyment, whose SBOM
+lists the JavaScript libraries of its package, so the SBOM is what an
+installation of the wheel gets: the distribution and its dependencies at the
+versions of `uv.lock`, installed in a virtual environment of their own, which
+Syft scans. Syft on `uv.lock` itself would take its dependency groups too, as
+Sphinx and the MCP SDK, which an installation does not get. The sdist does not
+carry the SBOM, as the one of Pyjoyment does, as it is made of the wheel,
+which is built after the sdist.
 
 The workflow PyPI, run manually, publishes the files of the latest published
 release, or of the release of the tag of its input, on PyPI once their

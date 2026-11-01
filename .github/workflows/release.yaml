@@ -43,16 +43,48 @@ jobs:
       - name: Build sdist and wheel
         run: uv build
 
+      - name: Set up Syft
+        id: syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      # What an installation of the wheel gets: the distribution and its
+      # dependencies at the versions of uv.lock, without its dependency groups,
+      # which syft would take from uv.lock itself, installed in a virtual
+      # environment of their own.
+      - name: Create SBOM
+        run: |
+          uv export --frozen --no-default-groups --no-emit-project --no-hashes -o "${RUNNER_TEMP}/requirements.txt"
+          uv venv "${RUNNER_TEMP}/sbom"
+          uv pip install --python "${RUNNER_TEMP}/sbom/bin/python" -r "${RUNNER_TEMP}/requirements.txt"
+          uv pip install --python "${RUNNER_TEMP}/sbom/bin/python" --no-deps dist/*.whl
+          "${SYFT}" scan "dir:${RUNNER_TEMP}/sbom" \
+            --override-default-catalogers python-installed-package-cataloger \
+            --source-name pyjo-mcp \
+            --source-version "${GITHUB_REF_NAME}" \
+            --output "spdx-json=pyjo-mcp-${GITHUB_REF_NAME}.spdx.json"
+        env:
+          SYFT: ${{ steps.syft.outputs.cmd }}
+
       - name: Attest build provenance
         uses: actions/attest@v4
         with:
+          subject-path: |-
+            dist/*
+            pyjo-mcp-*.spdx.json
+
+      - name: Attest SBOM
+        uses: actions/attest@v4
+        with:
           subject-path: dist/*
+          sbom-path: pyjo-mcp-${{ github.ref_name }}.spdx.json
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
           name: release
-          path: dist/
+          path: |-
+            dist/
+            pyjo-mcp-*.spdx.json
           if-no-files-found: error
 
   release:
@@ -71,7 +103,6 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: release
-          path: dist
 
       - name: Create draft release
         run: |
@@ -79,7 +110,7 @@ jobs:
           if [[ ${GITHUB_REF_NAME} =~ (a|b|rc)[0-9]+$ ]]; then
             prerelease=(--prerelease)
           fi
-          gh release create "${GITHUB_REF_NAME}" dist/* \
+          gh release create "${GITHUB_REF_NAME}" dist/* pyjo-mcp-*.spdx.json \
             --draft \
             --verify-tag \
             --generate-notes \
