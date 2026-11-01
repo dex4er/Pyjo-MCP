@@ -29,6 +29,11 @@ docs = ["sphinx>=9.1.1"]
 # The MCP SDK, whose client t/sdk calls the server with, as an implementation of the specification of its own
 sdk = ["mcp>=2.3.0"]
 
+# The documentation is built with Python 3.14 of Read the Docs and 3.15 of the workflow Docs, not with the lowest Python
+# of the distribution, which a new Sphinx may not support, as Sphinx 9.2 does not support 3.12
+[tool.uv.dependency-groups]
+docs = { requires-python = ">=3.14" }
+
 # Only the package Pyjo.MCP: the package Pyjo is the one of Pyjoyment, whose namespace extend_path keeps open
 [tool.hatch.build.targets.wheel]
 only-include = ["Pyjo/MCP"]
