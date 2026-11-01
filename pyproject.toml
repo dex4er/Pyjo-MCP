@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "Pyjo-MCP"
-dynamic = ["version"]
+version = "0.1.0"
 description = "Model Context Protocol server and client for Pyjoyment."
 readme = "README.md"
 license = "Artistic-2.0"
@@ -28,9 +28,6 @@ Documentation = "https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/latest/"
 docs = ["sphinx>=9.1.1"]
 # The MCP SDK, whose client t/sdk calls the server with, as an implementation of the specification of its own
 sdk = ["mcp>=2.3.0"]
-
-[tool.hatch.version]
-path = "Pyjo/MCP/__init__.py"
 
 # Only the package Pyjo.MCP: the package Pyjo is the one of Pyjoyment, whose namespace extend_path keeps open
 [tool.hatch.build.targets.wheel]

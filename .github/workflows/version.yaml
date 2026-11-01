@@ -1,0 +1,91 @@
+name: Automated version
+
+# Sets the version of pyproject.toml and uv.lock with uv version and keeps it
+# in the pull request of the branch automated/version, whose merge Automated
+# tag tags. It works with the token of the workflow, so the job starts the
+# checks on the branch with workflow_dispatch, as Automated trunk upgrade does.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version, or the components of uv version --bump (major, minor, patch, alpha,
+          beta, rc, post, dev, stable), as "minor rc"
+        required: true
+        default: patch
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  version:
+    name: version
+
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 10
+
+    env:
+      BRANCH: automated/version
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up mise
+        uses: jdx/mise-action@v5
+        with:
+          version: 2026.10.15 # datasource=github-releases depName=jdx/mise
+
+      - name: Set version
+        run: |
+          set -o pipefail
+          args=()
+          if [[ ${VERSION} =~ ^[0-9] ]]; then
+            args=("${VERSION}")
+          else
+            for bump in ${VERSION}; do
+              args+=(--bump "${bump}")
+            done
+          fi
+          uv version --no-sync "${args[@]}" | tee "${RUNNER_TEMP}/pr_body.log"
+          uv version --short > "${RUNNER_TEMP}/version.log"
+        env:
+          VERSION: ${{ inputs.version }}
+
+      - name: Commit and push to branch
+        run: |
+          git diff --exit-code && exit
+          git add pyproject.toml uv.lock
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "Automated version $(cat "${RUNNER_TEMP}/version.log")"
+          git push --force origin "HEAD:refs/heads/${BRANCH}"
+          echo "changes=true" >> "${GITHUB_ENV}"
+
+      - name: Create pull request
+        if: env.changes == 'true'
+        run: |
+          gh label create automated --color ededed --force
+          title="Automated version $(cat "${RUNNER_TEMP}/version.log")"
+          if [[ $(gh pr view "${BRANCH}" --json state --jq .state || true) != "OPEN" ]]; then
+            gh pr create \
+              --base main \
+              --head "${BRANCH}" \
+              --title "${title}" \
+              --body-file "${RUNNER_TEMP}/pr_body.log" \
+              --label automated
+          else
+            gh pr edit "${BRANCH}" \
+              --title "${title}" \
+              --body-file "${RUNNER_TEMP}/pr_body.log"
+          fi
+
+      - name: Run the checks of the commit
+        if: env.changes == 'true'
+        run: |-
+          gh workflow run build.yaml --ref "${BRANCH}"
+          gh workflow run tests.yaml --ref "${BRANCH}"
+          gh workflow run trunk-check.yaml --ref "${BRANCH}"

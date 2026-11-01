@@ -366,3 +366,37 @@ mise exec -- uv run --group docs --with-editable ../Pyjoyment sphinx-build -W --
 
 `t/docs/MCP.py` runs the synopsis of the package, as `t/docs` of Pyjoyment
 does.
+
+The workflow Tests ends with the job `Tests`, the one check of it that the
+ruleset of `main` requires, as in Pyjoyment: it fails when a job of the
+matrix failed or was cancelled, so a new version of Python needs no change of
+the ruleset.
+
+## Releases
+
+The releases are those of Pyjoyment, with its workflows: a release is a tag of
+the version of `pyproject.toml`, without a `v`, as `0.1.0`, which Automated
+version sets with `uv version` in the pull request of the branch
+`automated/version`, and Automated tag tags the merge commit of that pull
+request when it is merged, or with a comment `/tag` of a maintainer on it, and
+starts Release on the tag. A development version, as `0.1.1.dev1`, is not
+tagged. The version is static in `pyproject.toml`, as `uv version` cannot set a
+dynamic one, and `__version__` of the package reads it from the metadata of
+the distribution.
+
+Release builds the sdist and the wheel, attests their build provenance with
+`actions/attest`, and makes a draft of the GitHub release with them, whose
+notes are rewritten before it is published. It has no SBOM, unlike the one of
+Pyjoyment, whose SBOM lists the JavaScript libraries that its package bundles:
+the package of this distribution has nothing of others, and its dependencies
+are those of its metadata.
+
+The workflow PyPI, run manually, publishes the files of the latest published
+release, or of the release of the tag of its input, on PyPI once their
+attestations of Release verify, in the environment `publishing`, which waits
+for an approval and takes `main` and tags only. The trusted publisher of PyPI
+names `pypi.yaml` and that environment.
+
+```sh
+gh attestation verify pyjo_mcp-0.1.0.tar.gz -R dex4er/Pyjo-MCP
+```

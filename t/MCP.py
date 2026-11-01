@@ -14,7 +14,11 @@ with subtest('Namespace'):
     ok(Pyjo.URL.new('http://example.com').host == 'example.com', 'modules of Pyjoyment')
 
 with subtest('Versions'):
-    like_ok(Pyjo.MCP.__version__, re.compile(r'^\d+\.\d+\.\d+$'), 'version of the distribution')
+    like_ok(
+        Pyjo.MCP.__version__,
+        re.compile(r'^\d+\.\d+\.\d+((a|b|rc)\d+)?(\.post\d+)?(\.dev\d+)?$'),
+        'version of the distribution',
+    )
     is_ok(Pyjo.MCP.PROTOCOL_VERSION, '2026-07-28', 'revision of the protocol')
 
 done_testing()

@@ -1,7 +1,5 @@
 # Sphinx configuration: https://www.sphinx-doc.org/en/master/usage/configuration.html
 
-import Pyjo.MCP
-
 import functools
 import importlib.util
 import inspect
@@ -22,7 +20,7 @@ with open(os.path.join(ROOT, 'pyproject.toml'), 'rb') as f:
 project = PROJECT['name']
 author = ', '.join(a['name'] for a in PROJECT['authors'])
 copyright = f'2026, {author}'
-version = release = Pyjo.MCP.__version__
+version = release = PROJECT['version']
 
 extensions = ['sphinx.ext.autodoc', 'sphinx.ext.intersphinx', 'sphinx.ext.linkcode']
 

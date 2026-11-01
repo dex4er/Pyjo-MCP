@@ -1,0 +1,58 @@
+name: PyPI
+
+# Publishes on PyPI the sdist and the wheel of a published GitHub release, the
+# latest one or the one of the tag of the input, once their attestations of
+# Release verify, so that the files on PyPI are the ones of the release. The
+# trusted publisher of PyPI names this file and the environment publishing.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag of the release, the latest release when empty
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  pypi:
+    name: pypi
+
+    # The image of the action of PyPI has no build for ARM.
+    runs-on: ubuntu-26.04
+    environment: publishing
+    timeout-minutes: 10
+
+    permissions:
+      attestations: read
+      contents: read
+      id-token: write
+
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+
+    steps:
+      # gh release view without a tag is the latest release, which is never a
+      # draft or a prerelease.
+      - name: Download release
+        run: |
+          read -r tag draft < <(gh release view ${TAG:+"${TAG}"} --json tagName,isDraft --jq '"\(.tagName) \(.isDraft)"')
+          test "${draft}" = false
+          echo "TAG=${tag}" >> "${GITHUB_ENV}"
+          gh release download "${tag}" --pattern '*.whl' --pattern '*.tar.gz' --dir dist
+
+      - name: Verify attestations
+        run: |
+          for file in dist/*; do
+            gh attestation verify "${file}" \
+              --repo "${GH_REPO}" \
+              --signer-workflow "${GH_REPO}/.github/workflows/release.yaml" \
+              --source-ref "refs/tags/${TAG}"
+          done
+
+      # Trusted publishing, with the attestations of PEP 740 of each file.
+      - name: Publish on PyPI
+        uses: pypa/gh-action-pypi-publish@v1.14.3

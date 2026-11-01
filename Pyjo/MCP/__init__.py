@@ -47,7 +47,11 @@ It is inspired by the distribution `MCP <https://metacpan.org/pod/MCP>`_ of
 CPAN, built on Mojolicious.
 """
 
-__version__ = '0.1.0'
+import importlib.metadata
+
+
+__version__ = importlib.metadata.version('Pyjo-MCP')
+"""The version of the distribution, of its metadata, which the workflow Automated version sets in pyproject.toml."""
 
 PROTOCOL_VERSION = '2026-07-28'
 """The revision of the specification of the Model Context Protocol, as ``MCP-Protocol-Version`` names it."""
