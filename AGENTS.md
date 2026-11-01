@@ -342,6 +342,26 @@ continue those of rhysd/actionlint after 1.7.12, as in Pyjoyment: `downloads`
 in `.trunk/trunk.yaml` replaces the URLs of the plugin with those of the fork,
 whose files have the same names.
 
+Biome formats and lints JSON, Markdown and YAML, with `biome.jsonc`, in the
+place of prettier, markdownlint and yamlfmt, as in Pyjoyment, and yamllint
+checks what Biome does not, as the duplicated keys. The version of Biome is
+the one of `package.json`, which has nothing else, so that the extension of
+Biome of an editor, which takes Biome from `node_modules`, checks as Trunk
+does, and which Renovate bumps together with the pinned one of
+`.trunk/trunk.yaml`, where `!` keeps it from `trunk upgrade`. Renovate cannot
+run `biome migrate`, so the workflow Biome Migrate migrates `biome.jsonc` on
+its branch and commits it with the token of the workflow, as the author that
+`gitIgnoredAuthors` of `.renovaterc.json` names, so that Renovate keeps
+updating the branch, and starts the checks of the commit with
+`workflow_dispatch`; anywhere else, a `biome.jsonc` that the Biome of
+`package.json` would migrate fails the check. The definition of Biome in
+`.trunk/trunk.yaml` is the one of Pyjoyment, which explains why it is not the
+one of the plugin of Trunk.
+
+```sh
+mise exec -- npm ci --ignore-scripts
+```
+
 Its pyright needs the environment of `uv sync`, `.venv`, which `tool.pyright` of
 `pyproject.toml` names, as the package imports Pyjoyment; Trunk Check of CI
 runs `uv sync` first. The tests and `docs/conf.py` are not checked by pyright:

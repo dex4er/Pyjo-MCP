@@ -2,10 +2,14 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
     "rangeStrategy: always bump dependencies, even when the new version is already in the range.",
-    "rebaseWhen: rebase only on conflicts, to save unnecessary workflow runs."
+    "rebaseWhen: rebase only on conflicts, to save unnecessary workflow runs.",
+    "gitIgnoredAuthors: Biome Migrate commits the migrated biome.jsonc to Renovate branches as github-actions. Without this, Renovate would see the branch as modified by someone else and stop rebasing and updating it."
   ],
   "extends": ["config:recommended", ":semanticCommitsDisabled"],
   "addLabels": ["renovate"],
+  "gitIgnoredAuthors": [
+    "41898282+github-actions[bot]@users.noreply.github.com"
+  ],
   "osvVulnerabilityAlerts": true,
   "rangeStrategy": "bump",
   "vulnerabilityAlerts": {
@@ -32,6 +36,11 @@
       "matchManagers": ["pep621"],
       "matchDepTypes": ["requires-python"],
       "enabled": false
+    },
+    {
+      "description": "Biome, in package.json and in .trunk/trunk.yaml, in one pull request, on whose branch Biome Migrate migrates biome.jsonc to the new version.",
+      "matchPackageNames": ["@biomejs/biome"],
+      "groupName": "Biome"
     }
   ],
   "customManagers": [
@@ -39,7 +48,10 @@
       "description": "Renovate hints in a comment after the version.",
       "customType": "regex",
       "extractVersionTemplate": "^v?(?<version>.*)$",
-      "managerFilePatterns": ["/^\\.github/workflows/.*\\.ya?ml$/"],
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.*\\.ya?ml$/",
+        "/^\\.trunk/trunk\\.yaml$/"
+      ],
       "matchStrings": [
         "(\\s+|.*?@)(?<currentValue>\\S+?)!?\\s*#\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(\\s+versioning=(?<versioning>\\S+))?(\\s+registryUrl=(?<registryUrl>\\S+))?\\s*\\n"
       ],
