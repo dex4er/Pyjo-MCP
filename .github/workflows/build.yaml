@@ -48,12 +48,11 @@ jobs:
           if grep -E '(^| )Pyjo/__init__\.py' wheel.txt; then exit 1; fi
 
       # The wheel in an environment of its own, outside the checkout, so that
-      # nothing comes from it. tool.uv.sources applies only in the project,
-      # so Pyjoyment comes from its Git repository explicitly.
+      # nothing comes from it, with the Pyjoyment of PyPI that it depends on.
       - name: Install and import the wheel
         shell: bash
         run: |-
           uv venv --python "$(command -v python)" "$RUNNER_TEMP/venv"
-          uv pip install --python "$RUNNER_TEMP/venv/bin/python" git+https://github.com/dex4er/Pyjoyment dist/*.whl
+          uv pip install --python "$RUNNER_TEMP/venv/bin/python" dist/*.whl
           cd "$RUNNER_TEMP"
           venv/bin/python -c 'import Pyjo.MCP, Pyjo.URL; print(Pyjo.MCP.__version__, Pyjo.MCP.PROTOCOL_VERSION)'

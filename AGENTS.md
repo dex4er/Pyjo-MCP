@@ -295,13 +295,14 @@ mise exec -- uv run --group sdk --with-editable ../Pyjoyment python -m Pyjo.Prov
 
 ## Development
 
-The distribution depends on Pyjoyment of its Git repository, as the revival
-of Pyjoyment is not on PyPI yet (`[tool.uv.sources]` of `pyproject.toml`). A
-path to the checkout next to this one cannot be the source: uv applies the
-sources of a dependency of Git, so whoever installs the distribution from Git
-would get a subdirectory of this repository that does not exist. The tests lay
-the checkout next to this one over it with `--with-editable`, so that they
-test what is there:
+The distribution depends on the release of Pyjoyment on PyPI, with the lowest
+version that has what it uses, which `uv.lock` pins. A change of Pyjoyment that
+is not released yet would be its Git repository in `[tool.uv.sources]` of
+`pyproject.toml`, until its release, and not a path to the checkout next to
+this one: uv applies the sources of a dependency of Git, so whoever installs
+the distribution from Git would get a subdirectory of this repository that
+does not exist. The tests lay the checkout next to this one over it with
+`--with-editable`, so that they test what is there:
 
 ```sh
 mise exec -- uv sync
@@ -323,6 +324,12 @@ open, so the tests of Pyjoyment run with the distribution installed as well:
 cd ../Pyjoyment
 mise exec -- uv run --project ../Pyjo-MCP --with-editable . python -m Pyjo.Prove -l -j 4 -r t
 ```
+
+The workflow Tests runs them against the release of `uv.lock`, without
+`--with-editable`, so that a pull request tests what an installation gets, and
+the suite of Pyjoyment of the tag of that release. A dispatch with
+`pyjoyment-ref` lays a checkout of the ref over it, as in development, so that
+what the next release of Pyjoyment breaks is known before the release.
 
 Trunk checks the files with the linters of Pyjoyment, from `.trunk/trunk.yaml`:
 
@@ -348,8 +355,8 @@ checks it.
 The documentation is on Read the Docs, a subproject of the one of Pyjoyment:
 the docstrings of the package, which autodoc imports, as in Pyjoyment. Read the
 Docs installs it with `uv sync` of `uv.lock` and the group `docs`, not with pip
-and a `docs/requirements.txt` as Pyjoyment does: pip does not read
-`[tool.uv.sources]`, so it would take Pyjoyment from PyPI. The links to the
+and a `docs/requirements.txt` as Pyjoyment does, so that it builds with the
+versions of the lock, as the workflow Docs does. The links to the
 modules of Pyjoyment come from intersphinx. The workflow Docs builds it with
 `-W`, as Read the Docs does, with the Pyjoyment of `uv.lock`:
 
