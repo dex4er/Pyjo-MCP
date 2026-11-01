@@ -282,3 +282,27 @@ jobs:
           else
             gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@report.md > /dev/null
           fi
+
+  # The one check that the ruleset of main requires, whatever the matrix has,
+  # as in Pyjoyment: it fails when a job failed or was cancelled, so a new
+  # version of Python needs no change of the ruleset.
+  tests:
+    name: Tests
+    needs:
+      - pyjoyment
+      - prove
+      - sdk
+    if: always()
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 5
+
+    steps:
+      - name: Check the results of the jobs
+        shell: bash
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |-
+          echo "$RESULTS"
+          for result in $RESULTS; do
+            test "$result" = success
+          done
