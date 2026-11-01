@@ -19,8 +19,8 @@ build:
 sphinx:
   configuration: docs/conf.py
 
-# uv sync of uv.lock, with Pyjoyment of its Git repository, which autodoc imports, and Sphinx of the group
-# docs: pip would take Pyjoyment from PyPI, as it does not read tool.uv.sources
+# uv sync of uv.lock, with the Pyjoyment that autodoc imports and the Sphinx of the group docs, so that Read the Docs
+# builds with the versions that the workflow Docs builds with
 python:
   install:
     - method: uv

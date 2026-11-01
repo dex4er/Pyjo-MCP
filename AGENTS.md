@@ -295,13 +295,14 @@ mise exec -- uv run --group sdk --with-editable ../Pyjoyment python -m Pyjo.Prov
 
 ## Development
 
-The distribution depends on Pyjoyment of its Git repository, as the revival
-of Pyjoyment is not on PyPI yet (`[tool.uv.sources]` of `pyproject.toml`). A
-path to the checkout next to this one cannot be the source: uv applies the
-sources of a dependency of Git, so whoever installs the distribution from Git
-would get a subdirectory of this repository that does not exist. The tests lay
-the checkout next to this one over it with `--with-editable`, so that they
-test what is there:
+The distribution depends on the release of Pyjoyment on PyPI, with the lowest
+version that has what it uses, which `uv.lock` pins. A change of Pyjoyment that
+is not released yet would be its Git repository in `[tool.uv.sources]` of
+`pyproject.toml`, until its release, and not a path to the checkout next to
+this one: uv applies the sources of a dependency of Git, so whoever installs
+the distribution from Git would get a subdirectory of this repository that
+does not exist. The tests lay the checkout next to this one over it with
+`--with-editable`, so that they test what is there:
 
 ```sh
 mise exec -- uv sync
@@ -323,6 +324,12 @@ open, so the tests of Pyjoyment run with the distribution installed as well:
 cd ../Pyjoyment
 mise exec -- uv run --project ../Pyjo-MCP --with-editable . python -m Pyjo.Prove -l -j 4 -r t
 ```
+
+The workflow Tests runs them against the release of `uv.lock`, without
+`--with-editable`, so that a pull request tests what an installation gets, and
+the suite of Pyjoyment of the tag of that release. A dispatch with
+`pyjoyment-ref` lays a checkout of the ref over it, as in development, so that
+what the next release of Pyjoyment breaks is known before the release.
 
 Trunk checks the files with the linters of Pyjoyment, from `.trunk/trunk.yaml`:
 
@@ -348,8 +355,8 @@ checks it.
 The documentation is on Read the Docs, a subproject of the one of Pyjoyment:
 the docstrings of the package, which autodoc imports, as in Pyjoyment. Read the
 Docs installs it with `uv sync` of `uv.lock` and the group `docs`, not with pip
-and a `docs/requirements.txt` as Pyjoyment does: pip does not read
-`[tool.uv.sources]`, so it would take Pyjoyment from PyPI. The links to the
+and a `docs/requirements.txt` as Pyjoyment does, so that it builds with the
+versions of the lock, as the workflow Docs does. The links to the
 modules of Pyjoyment come from intersphinx. The workflow Docs builds it with
 `-W`, as Read the Docs does, with the Pyjoyment of `uv.lock`:
 
@@ -359,3 +366,37 @@ mise exec -- uv run --group docs --with-editable ../Pyjoyment sphinx-build -W --
 
 `t/docs/MCP.py` runs the synopsis of the package, as `t/docs` of Pyjoyment
 does.
+
+The workflow Tests ends with the job `Tests`, the one check of it that the
+ruleset of `main` requires, as in Pyjoyment: it fails when a job of the
+matrix failed or was cancelled, so a new version of Python needs no change of
+the ruleset.
+
+## Releases
+
+The releases are those of Pyjoyment, with its workflows: a release is a tag of
+the version of `pyproject.toml`, without a `v`, as `0.1.0`, which Automated
+version sets with `uv version` in the pull request of the branch
+`automated/version`, and Automated tag tags the merge commit of that pull
+request when it is merged, or with a comment `/tag` of a maintainer on it, and
+starts Release on the tag. A development version, as `0.1.1.dev1`, is not
+tagged. The version is static in `pyproject.toml`, as `uv version` cannot set a
+dynamic one, and `__version__` of the package reads it from the metadata of
+the distribution.
+
+Release builds the sdist and the wheel, attests their build provenance with
+`actions/attest`, and makes a draft of the GitHub release with them, whose
+notes are rewritten before it is published. It has no SBOM, unlike the one of
+Pyjoyment, whose SBOM lists the JavaScript libraries that its package bundles:
+the package of this distribution has nothing of others, and its dependencies
+are those of its metadata.
+
+The workflow PyPI, run manually, publishes the files of the latest published
+release, or of the release of the tag of its input, on PyPI once their
+attestations of Release verify, in the environment `publishing`, which waits
+for an approval and takes `main` and tags only. The trusted publisher of PyPI
+names `pypi.yaml` and that environment.
+
+```sh
+gh attestation verify pyjo_mcp-0.1.0.tar.gz -R dex4er/Pyjo-MCP
+```

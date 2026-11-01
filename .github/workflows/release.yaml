@@ -1,0 +1,90 @@
+name: Release
+
+# Makes the draft of the GitHub release of a tag, pushed or created by
+# Automated tag, which starts it with workflow_dispatch, as a tag of the token
+# of a workflow starts no workflow. Its notes are written before it is
+# published, and PyPI publishes its files after it.
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build
+
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 10
+
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up mise
+        uses: jdx/mise-action@v5
+        with:
+          version: 2026.10.15 # datasource=github-releases depName=jdx/mise
+
+      - name: Check the version
+        run: |
+          uv lock --check
+          test "${GITHUB_REF_TYPE}" = tag
+          test "${GITHUB_REF_NAME}" = "$(uv version --short)"
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/*
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    name: release
+
+    needs: build
+
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 10
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: release
+          path: dist
+
+      - name: Create draft release
+        run: |
+          prerelease=()
+          if [[ ${GITHUB_REF_NAME} =~ (a|b|rc)[0-9]+$ ]]; then
+            prerelease=(--prerelease)
+          fi
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --draft \
+            --verify-tag \
+            --generate-notes \
+            --title "${GITHUB_REF_NAME}" \
+            "${prerelease[@]}"
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}

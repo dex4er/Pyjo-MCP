@@ -19,8 +19,8 @@ for [Pyjoyment](https://github.com/dex4er/Pyjoyment), of the revision
 
 ## Installation
 
-From the Git repository, as neither the distribution nor the revival of
-Pyjoyment is on PyPI yet; with uv, Pyjoyment comes from its Git repository too:
+From the Git repository, as the distribution is not on PyPI yet; Pyjoyment
+comes from [PyPI](https://pypi.org/project/Pyjoyment/):
 
 ```sh
 uv add git+https://github.com/dex4er/Pyjo-MCP

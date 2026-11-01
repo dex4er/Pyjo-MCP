@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "Pyjo-MCP"
-dynamic = ["version"]
+version = "0.1.0"
 description = "Model Context Protocol server and client for Pyjoyment."
 readme = "README.md"
 license = "Artistic-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Piotr Roszatycki", email = "piotr.roszatycki@gmail.com" }]
 requires-python = ">=3.12"
-dependencies = ["Pyjoyment"]
+dependencies = ["Pyjoyment>=0.1.0"]
 keywords = ["pyjoyment", "mcp", "model-context-protocol"]
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
@@ -28,14 +28,6 @@ Documentation = "https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/latest/"
 docs = ["sphinx>=9.1.1"]
 # The MCP SDK, whose client t/sdk calls the server with, as an implementation of the specification of its own
 sdk = ["mcp>=2.3.0"]
-
-# Pyjoyment of its Git repository, as its revival is not on PyPI yet; a path to the checkout next to this one would be a
-# subdirectory of this repository for whoever installs it from Git, as uv applies the sources of a dependency of Git
-[tool.uv.sources]
-Pyjoyment = { git = "https://github.com/dex4er/Pyjoyment" }
-
-[tool.hatch.version]
-path = "Pyjo/MCP/__init__.py"
 
 # Only the package Pyjo.MCP: the package Pyjo is the one of Pyjoyment, whose namespace extend_path keeps open
 [tool.hatch.build.targets.wheel]
