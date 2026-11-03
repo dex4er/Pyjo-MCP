@@ -50,13 +50,13 @@ import Pyjo.Promise
 import Pyjo.SSE
 import Pyjo.Transaction.HTTP
 import Pyjo.UserAgent
+import Pyjo.Util
 
 # The package of the distribution, imported relatively, as pyright takes the regular package Pyjo of Pyjoyment, which
 # hides the namespace that extend_path keeps open
 from .. import MCP
 from . import Tool
 
-import base64
 import builtins
 import re
 import weakref
@@ -787,7 +787,7 @@ def _encode(value: Any) -> str:
     text = value if isinstance(value, str) else Pyjo.JSON.to_json(value)
     if _PLAIN.fullmatch(text) and not _BASE64.fullmatch(text):
         return text
-    return f'=?base64?{base64.b64encode(text.encode()).decode()}?='
+    return f'=?base64?{Pyjo.Util.b64_encode(text.encode(), "")}?='
 
 
 def _input(params: dict[str, Any], responses: dict[str, Any] | None, state: str | None) -> dict[str, Any]:
