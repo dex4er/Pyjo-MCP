@@ -806,7 +806,7 @@ sdk = [
 docs = ">=3.14"
 
 [package.metadata]
-requires-dist = [{ name = "pyjoyment", specifier = ">=0.1.0" }]
+requires-dist = [{ name = "pyjoyment", specifier = ">=0.2.0" }]
 
 [package.metadata.requires-dev]
 docs = [{ name = "sphinx", marker = "python_full_version >= '3.14'", specifier = ">=9.2.0" }]
@@ -814,11 +814,11 @@ sdk = [{ name = "mcp", specifier = ">=2.3.0" }]
 
 [[package]]
 name = "pyjoyment"
-version = "0.1.0"
+version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b8/88/2783bd39bc5b1705b09d4b154417c7247c31dab6e9f0d9daf23f959b5046/pyjoyment-0.1.0.tar.gz", hash = "sha256:0cc500129516e9d6da0a0c56aa5b7968993f605bb115771994f80f89a67c801c", size = 1997837, upload-time = "2026-11-01T15:16:32.928Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/18/87/0b8571f1c574ebe9c56be62ff65015698721afa5a90163784a32ebd0036c/pyjoyment-0.2.0.tar.gz", hash = "sha256:96c59dd95ae18130b7185a4c7aed339824c325e103d2b2f8c0407564a223c516", size = 2040464, upload-time = "2026-11-03T16:44:40.259Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7d/bb/af3eba515622d3bfd06b0185dbf5770f63b03510418921d3ab6b4796b96b/pyjoyment-0.1.0-py3-none-any.whl", hash = "sha256:b07a8c987599872f49e73a93a24ab8e0b35f71eebc57f9b4fef7444e9498d6e6", size = 1230320, upload-time = "2026-11-01T15:16:30.976Z" },
+    { url = "https://files.pythonhosted.org/packages/75/00/d846410ee4ed380ecb9440d5822d5284df37b86291a7dd95ff6d93a7b429/pyjoyment-0.2.0-py3-none-any.whl", hash = "sha256:cc1fbe5083101b57114b0d35d083f22a836af312e8eca1fce42d9dfe4196567c", size = 1249536, upload-time = "2026-11-03T16:44:38.373Z" },
 ]
 
 [[package]]

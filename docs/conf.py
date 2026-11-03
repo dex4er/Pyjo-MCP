@@ -36,7 +36,7 @@ COMMIT = (
     or 'main'
 )
 
-SOURCE = f'https://github.com/dex4er/Pyjo-MCP/blob/{COMMIT}'
+SOURCE = f'https://github.com/pyjoyment/Pyjo-MCP/blob/{COMMIT}'
 
 
 # The link [source] of a class, a function or a method goes to the lines of its source on GitHub; an object of
@@ -97,7 +97,7 @@ exclude_patterns = ['_build']
 
 html_theme = 'alabaster'
 html_theme_options = {
-    'github_user': 'dex4er',
+    'github_user': 'pyjoyment',
     'github_repo': 'Pyjo-MCP',
     'show_powered_by': False,
     # The way back to the documentation of Pyjoyment, whose project this one is a subproject of on Read the Docs

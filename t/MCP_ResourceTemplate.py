@@ -80,13 +80,13 @@ with subtest('Options'):
 with subtest('Variables'):
     template = Pyjo.MCP.ResourceTemplate.new('repo://{owner}/{repo}/blob/{+path}', lambda **values: str(values))
     is_deeply_ok(
-        template.match('repo://dex4er/Pyjo-MCP/blob/docs/index.md'),
-        {'owner': 'dex4er', 'repo': 'Pyjo-MCP', 'path': 'docs/index.md'},
+        template.match('repo://pyjoyment/Pyjo-MCP/blob/docs/index.md'),
+        {'owner': 'pyjoyment', 'repo': 'Pyjo-MCP', 'path': 'docs/index.md'},
         'values',
     )
     is_ok(
-        read(template.resource('repo://dex4er/Pyjo-MCP/blob/README.md'))['contents'][0]['text'],
-        "{'owner': 'dex4er', 'repo': 'Pyjo-MCP', 'path': 'README.md'}",
+        read(template.resource('repo://pyjoyment/Pyjo-MCP/blob/README.md'))['contents'][0]['text'],
+        "{'owner': 'pyjoyment', 'repo': 'Pyjo-MCP', 'path': 'README.md'}",
         'keyword arguments',
     )
     template = Pyjo.MCP.ResourceTemplate.new('file:///project{/path*}', lambda path: '/'.join(path))

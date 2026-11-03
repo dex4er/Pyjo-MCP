@@ -49,7 +49,7 @@ jobs:
         if: ${{ inputs.pyjoyment-ref }}
         uses: actions/checkout@v7
         with:
-          repository: dex4er/Pyjoyment
+          repository: pyjoyment/Pyjoyment
           ref: ${{ inputs.pyjoyment-ref }}
           path: Pyjoyment
 
@@ -126,7 +126,7 @@ jobs:
         if: ${{ inputs.pyjoyment-ref }}
         uses: actions/checkout@v7
         with:
-          repository: dex4er/Pyjoyment
+          repository: pyjoyment/Pyjoyment
           ref: ${{ inputs.pyjoyment-ref }}
           path: Pyjoyment
 
@@ -199,7 +199,7 @@ jobs:
       - name: Checkout Pyjoyment
         uses: actions/checkout@v7
         with:
-          repository: dex4er/Pyjoyment
+          repository: pyjoyment/Pyjoyment
           ref: main
           path: Pyjoyment
 

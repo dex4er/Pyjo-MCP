@@ -41,7 +41,7 @@ See also
 :mod:`Pyjo.MCP.Server`, :mod:`Pyjo.MCP.Tool`, :mod:`Pyjo.MCP.Prompt`,
 :mod:`Pyjo.MCP.Resource`, :mod:`Pyjo.MCP.ResourceTemplate`,
 :mod:`Pyjo.MCP.Client`, :mod:`Pyjo.MCP.Test`, :mod:`Pyjoyment`,
-https://github.com/dex4er/Pyjoyment.
+https://github.com/pyjoyment/Pyjoyment.
 
 It is inspired by the distribution `MCP <https://metacpan.org/pod/MCP>`_ of
 CPAN, built on Mojolicious.
