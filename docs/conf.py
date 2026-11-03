@@ -24,9 +24,14 @@ version = release = PROJECT['version']
 
 extensions = ['sphinx.ext.autodoc', 'sphinx.ext.intersphinx', 'sphinx.ext.linkcode']
 
+# The documentation of Pyjoyment of the same version of Read the Docs as this one, stable for stable, and latest for
+# the others, as a tag or a pull request of this project is no version of Pyjoyment
+CHANNEL = 'stable' if os.environ.get('READTHEDOCS_VERSION') == 'stable' else 'latest'
+PYJOYMENT = f'https://pyjoyment.readthedocs.io/en/{CHANNEL}/'
+
 # The modules of Pyjoyment, as Pyjo.UserAgent, are links to its documentation
 intersphinx_mapping = {
-    'pyjoyment': ('https://pyjoyment.readthedocs.io/en/latest/', None),
+    'pyjoyment': (PYJOYMENT, None),
 }
 
 # The commit that the links to the source point to: the one that Read the Docs builds, or the one of the checkout
@@ -102,8 +107,8 @@ html_theme_options = {
     'show_powered_by': False,
     # The way back to the documentation of Pyjoyment, whose project this one is a subproject of on Read the Docs
     'extra_nav_links': {
-        'Pyjoyment': 'https://pyjoyment.readthedocs.io/en/latest/',
-        'Distributions': 'https://pyjoyment.readthedocs.io/en/latest/distributions.html',
+        'Pyjoyment': PYJOYMENT,
+        'Distributions': f'{PYJOYMENT}distributions.html',
     },
     # The sans-serif font of the system, where Alabaster has Georgia, as in Pyjoyment
     'font_family': "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",

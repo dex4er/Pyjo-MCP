@@ -21,7 +21,7 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/pyjoyment/Pyjo-MCP"
-Documentation = "https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/latest/"
+Documentation = "https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/stable/"
 
 # Sphinx of docs/, which Read the Docs and the workflow Docs install with uv sync --group docs
 [dependency-groups]

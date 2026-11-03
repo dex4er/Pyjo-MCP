@@ -1,6 +1,6 @@
 [![Home](https://img.shields.io/badge/%F0%9F%8F%A0-Pyjoyment-02a7a0)](https://github.com/pyjoyment/Pyjoyment)
 [![GitHub](https://img.shields.io/github/stars/pyjoyment/Pyjo-MCP?style=flat&label=GitHub%20%E2%AD%90&logo=github)](https://github.com/pyjoyment/Pyjo-MCP)
-[![Documentation](https://img.shields.io/badge/docs-Read_the_Docs-blue?logo=readthedocs&logoColor=white)](https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/latest/)
+[![Documentation](https://img.shields.io/badge/docs-Read_the_Docs-blue?logo=readthedocs&logoColor=white)](https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/stable/)
 [![License](https://img.shields.io/github/license/pyjoyment/Pyjo-MCP.svg)](https://github.com/pyjoyment/Pyjo-MCP/blob/main/LICENSE)
 [![Tests](https://github.com/pyjoyment/Pyjo-MCP/actions/workflows/tests.yaml/badge.svg?branch=main)](https://github.com/pyjoyment/Pyjo-MCP/actions/workflows/tests.yaml)
 
@@ -155,7 +155,7 @@ done_testing()
 ## Documentation
 
 The tutorial, which makes servers of MCP step by step, and the API of the package
-are on [Read the Docs](https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/latest/).
+are on [Read the Docs](https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/stable/).
 
 ## Status
 
