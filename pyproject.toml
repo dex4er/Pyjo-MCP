@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "Pyjo-MCP"
-version = "0.1.0"
+version = "0.2.0.dev1"
 description = "Model Context Protocol server and client for Pyjoyment."
 readme = "README.md"
 license = "Artistic-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Piotr Roszatycki", email = "piotr.roszatycki@gmail.com" }]
 requires-python = ">=3.12"
-dependencies = ["Pyjoyment>=0.1.0"]
+dependencies = ["Pyjoyment>=0.2.0"]
 keywords = ["pyjoyment", "mcp", "model-context-protocol"]
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
@@ -20,7 +20,7 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/dex4er/Pyjo-MCP"
+Homepage = "https://github.com/pyjoyment/Pyjo-MCP"
 Documentation = "https://pyjoyment.readthedocs.io/projects/pyjo-mcp/en/latest/"
 
 # Sphinx of docs/, which Read the Docs and the workflow Docs install with uv sync --group docs

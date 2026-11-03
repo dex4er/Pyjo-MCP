@@ -61,11 +61,11 @@ standard input and output of `Pyjo.Server.Stdio`, when the command `stdio` of
 Pyjoyment starts the application, and does nothing for another server, so that
 one application serves both transports. The stream, its framing of lines, the
 protection of the standard output and the end at the end of the input are those
-of Pyjoyment (`Pyjo.IOLoop.Stdio`, `Pyjo.IOLoop.Messages`, dex4er/Pyjoyment#361):
+of Pyjoyment (`Pyjo.IOLoop.Stdio`, `Pyjo.IOLoop.Messages`, pyjoyment/Pyjoyment#361):
 the distribution only connects them.
 
 `serve` hands each message to `Pyjo.JSON.RPC.serve` with its `dispatch_p`
-(dex4er/Pyjoyment#375), not to the dispatcher of JSON-RPC directly, for two
+(pyjoyment/Pyjoyment#375), not to the dispatcher of JSON-RPC directly, for two
 reasons. Each request needs a `Context` of its own, as `_meta` writes the
 revision and the capabilities of the client into it, while the `context` of
 `serve` is one for all the requests of the stream, which are served at the same
@@ -390,8 +390,11 @@ the ruleset.
 
 The releases are those of Pyjoyment, with its workflows: a release is a tag of
 the version of `pyproject.toml`, without a `v`, as `0.1.0`, which Automated
-version sets with `uv version` in the pull request of the branch
-`automated/version`, and Automated tag tags the merge commit of that pull
+version sets with `uv version`, the components of its `--bump` from a list, as
+`patch dev` or `minor rc`, or the version of `manual`, in the pull request of
+the branch `automated/version`. After a release, a pre-release goes with the
+release that it comes before, as PEP 440 orders `0.2.0.dev1` before `0.2.0`,
+so `dev` alone after `0.2.0` fails. Automated tag tags the merge commit of that pull
 request when it is merged, or with a comment `/tag` of a maintainer on it, and
 starts Release on the tag. A development version, as `0.1.1.dev1`, is not
 tagged. The version is static in `pyproject.toml`, as `uv version` cannot set a
@@ -417,5 +420,5 @@ for an approval and takes `main` and tags only. The trusted publisher of PyPI
 names `pypi.yaml` and that environment.
 
 ```sh
-gh attestation verify pyjo_mcp-0.1.0.tar.gz -R dex4er/Pyjo-MCP
+gh attestation verify pyjo_mcp-0.1.0.tar.gz -R pyjoyment/Pyjo-MCP
 ```

@@ -7,11 +7,38 @@ name: Automated version
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: The version, or the components of uv version --bump (major, minor, patch, alpha,
-          beta, rc, post, dev, stable), as "minor rc"
-        required: true
+      bump:
+        description: The components of uv version --bump. After a release major, minor, patch, post, or the next
+          version with a pre-release, as "patch dev"; after a development version or a pre-release also stable, or
+          the same or a later pre-release alone, as rc after alpha; manual takes the version below
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - post
+          - stable
+          - dev
+          - alpha
+          - beta
+          - rc
+          - patch dev
+          - minor dev
+          - major dev
+          - patch alpha
+          - minor alpha
+          - major alpha
+          - patch beta
+          - minor beta
+          - major beta
+          - patch rc
+          - minor rc
+          - major rc
+          - manual
         default: patch
+      version:
+        description: The version of the bump manual, as "1.0.0"
+        required: false
 
 permissions:
   actions: write
@@ -43,16 +70,21 @@ jobs:
         run: |
           set -o pipefail
           args=()
-          if [[ ${VERSION} =~ ^[0-9] ]]; then
+          if [[ ${BUMP} == manual ]]; then
+            if [[ -z ${VERSION} ]]; then
+              echo "::error::The bump manual needs a version" >&2
+              exit 1
+            fi
             args=("${VERSION}")
           else
-            for bump in ${VERSION}; do
+            for bump in ${BUMP}; do
               args+=(--bump "${bump}")
             done
           fi
           uv version --no-sync "${args[@]}" | tee "${RUNNER_TEMP}/pr_body.log"
           uv version --short > "${RUNNER_TEMP}/version.log"
         env:
+          BUMP: ${{ inputs.bump }}
           VERSION: ${{ inputs.version }}
 
       - name: Commit and push to branch

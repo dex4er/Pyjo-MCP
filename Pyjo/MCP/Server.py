@@ -104,6 +104,7 @@ import Pyjo.Log
 import Pyjo.Promise
 import Pyjo.Server.Stdio
 import Pyjo.URL.Template
+import Pyjo.Util
 
 # The package of the distribution, imported relatively, as pyright takes the regular package Pyjo of Pyjoyment, which
 # hides the namespace that extend_path keeps open
@@ -113,8 +114,6 @@ from . import Prompt, Resource, ResourceTemplate, Tool
 import base64
 import binascii
 import builtins
-import hashlib
-import hmac
 import inspect
 import re
 import threading
@@ -1206,7 +1205,7 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         # The input of the rounds before, from the requestState of the request, with its inputResponses, and the
         # handler of a rejection that answers InputRequired with the result input_required and the state of the next
         # round, which is bound to the method, the name or the URI, and the arguments, of the request
-        binding = [method, target, hashlib.sha256(Pyjo.JSON.encode_json(arguments, sort_keys=True)).hexdigest()]
+        binding = [method, target, Pyjo.Util.sha256_sum(Pyjo.JSON.encode_json(arguments, sort_keys=True))]
         responses = params.get('inputResponses')
         if responses is not None and not isinstance(responses, dict):
             raise Pyjo.JSON.RPC.Error.new(Pyjo.JSON.RPC.INVALID_PARAMS, 'Invalid input responses')
@@ -1390,7 +1389,7 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         # The state, signed with the first secret
         if not (secrets := self._secrets(context)):
             raise Pyjo.Exception.new('No secrets to sign the state of a request')
-        data = base64.urlsafe_b64encode(Pyjo.JSON.encode_json(state)).decode().rstrip('=')
+        data = Pyjo.Util.b64url_encode(Pyjo.JSON.encode_json(state))
         return f'{data}.{_signature(secrets[0], data)}'
 
     @property
@@ -1424,11 +1423,11 @@ class Pyjo_MCP_Server(Pyjo.EventEmitter.object):
         if not isinstance(token, str) or '.' not in token:
             return None
         data, signature = token.rsplit('.', 1)
-        if not any(hmac.compare_digest(_signature(secret, data), signature) for secret in self._secrets(context)):
+        if not any(Pyjo.Util.secure_compare(signature, _signature(secret, data)) for secret in self._secrets(context)):
             return None
         try:
-            state = _object(Pyjo.JSON.decode_json(base64.urlsafe_b64decode(data + '=' * (-len(data) % 4))))
-        except (ValueError, binascii.Error):
+            state = _object(Pyjo.JSON.decode_json(Pyjo.Util.b64url_decode(data)))
+        except ValueError:
             return None
         expires = state.get('expires')
         if state.get('binding') != binding or not isinstance(expires, int) or expires < time.time():
@@ -1490,9 +1489,8 @@ def _id(id: Any) -> str | int | None:
 
 
 def _signature(secret: str, data: str) -> str:
-    # The HMAC-SHA256 of the data with the secret, in Base64 for URLs without padding
-    digest = hmac.new(secret.encode(), data.encode(), hashlib.sha256).digest()
-    return base64.urlsafe_b64encode(digest).decode().rstrip('=')
+    # The HMAC-SHA256 of the data with the secret, as the signed cookies of Pyjoyment
+    return Pyjo.Util.hmac_sha256_sum(data.encode(), secret.encode())
 
 
 def _object(value: Anything) -> dict[str, Any]:
