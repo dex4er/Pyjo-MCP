@@ -390,8 +390,11 @@ the ruleset.
 
 The releases are those of Pyjoyment, with its workflows: a release is a tag of
 the version of `pyproject.toml`, without a `v`, as `0.1.0`, which Automated
-version sets with `uv version` in the pull request of the branch
-`automated/version`, and Automated tag tags the merge commit of that pull
+version sets with `uv version`, the components of its `--bump` from a list, as
+`patch dev` or `minor rc`, or the version of `manual`, in the pull request of
+the branch `automated/version`. After a release, a pre-release goes with the
+release that it comes before, as PEP 440 orders `0.2.0.dev1` before `0.2.0`,
+so `dev` alone after `0.2.0` fails. Automated tag tags the merge commit of that pull
 request when it is merged, or with a comment `/tag` of a maintainer on it, and
 starts Release on the tag. A development version, as `0.1.1.dev1`, is not
 tagged. The version is static in `pyproject.toml`, as `uv version` cannot set a
