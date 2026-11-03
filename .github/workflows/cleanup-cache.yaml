@@ -1,0 +1,41 @@
+name: Cleanup cache
+
+# Deletes the caches of a pull request once it is closed, which GitHub keeps
+# until they expire and then evicts the ones of main first: the ones of its
+# merge ref, and the ones of its branch, which the checks started with
+# workflow_dispatch on the branches of the automated workflows leave. A pull
+# request of a fork has a read-only token, which cannot delete them.
+on:
+  pull_request:
+    types:
+      - closed
+
+permissions:
+  actions: write
+
+jobs:
+  cleanup-cache:
+    name: cleanup cache
+
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 10
+
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Cleanup cache
+        run: |-
+          refs=("refs/pull/${NUMBER}/merge")
+          if [[ ${BRANCH} != "${DEFAULT_BRANCH}" ]]; then
+            refs+=("refs/heads/${BRANCH}")
+          fi
+          for ref in "${refs[@]}"; do
+            gh cache list --ref "${ref}" --limit 100 --json id --jq '.[].id' | xargs -n1 -r -t gh cache delete
+          done
+        continue-on-error: true
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          NUMBER: ${{ github.event.pull_request.number }}
