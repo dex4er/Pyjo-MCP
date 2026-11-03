@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "Pyjo-MCP"
-version = "0.2.0"
+version = "0.2.1.dev1"
 description = "Model Context Protocol server and client for Pyjoyment."
 readme = "README.md"
 license = "Artistic-2.0"
