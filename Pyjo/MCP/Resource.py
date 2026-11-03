@@ -46,8 +46,8 @@ Classes
 import Pyjo.Base
 import Pyjo.JSON
 import Pyjo.Promise
+import Pyjo.Util
 
-import base64
 import inspect
 
 from collections.abc import Callable
@@ -194,7 +194,7 @@ class Pyjo_MCP_Resource(Pyjo.Base.object):
             return cast(dict[str, Any], value)
         contents: dict[str, Any] = {'uri': self.uri, 'mimeType': self.mime_type}
         if isinstance(value, bytes | bytearray):
-            contents['blob'] = base64.b64encode(value).decode()
+            contents['blob'] = Pyjo.Util.b64_encode(bytes(value), '')
         else:
             contents['text'] = value if isinstance(value, str) else Pyjo.JSON.to_json(cast(Any, value))
         return {'contents': [contents]}
