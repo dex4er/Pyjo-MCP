@@ -52,7 +52,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v10.3.3
         with:
-          version: 0.13.6 # datasource=github-releases depName=astral-sh/uv
+          version: 0.13.7 # datasource=github-releases depName=astral-sh/uv
 
       - name: Install
         working-directory: Pyjo-MCP
@@ -123,7 +123,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v10.3.3
         with:
-          version: 0.13.6 # datasource=github-releases depName=astral-sh/uv
+          version: 0.13.7 # datasource=github-releases depName=astral-sh/uv
 
       - name: Install
         working-directory: Pyjo-MCP
