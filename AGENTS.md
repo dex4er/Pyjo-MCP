@@ -323,11 +323,12 @@ run with it installed, unlike the one of a distribution of a reactor, which
 runs on the reactor. What the distribution could break is the namespace, with
 an `__init__.py` of `Pyjo` of its own, which the workflow Build checks.
 
-The workflow Tests runs the tests of the distribution against the release of
-`uv.lock`, without `--with-editable`, so that a pull request tests what an
-installation gets. A dispatch with `pyjoyment-ref` lays a checkout of the ref
-over it, as in development, so that what the next release of Pyjoyment breaks
-is known before the release.
+The workflow Tests runs the tests of the distribution against the release
+of `uv.lock`, without `--with-editable`, so that a pull request tests what
+an installation gets. A dispatch with `pyjoyment-ref`, a branch, a tag or a
+commit of Pyjoyment, installs its Pyjoyment of Git over it with
+`uv run --with`, not editable, as an installation from Git gets it, so that
+what the next release of Pyjoyment breaks is known before the release.
 
 Trunk checks the files with the linters of Pyjoyment, from `.trunk/trunk.yaml`:
 

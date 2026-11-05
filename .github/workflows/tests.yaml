@@ -43,16 +43,6 @@ jobs:
         with:
           path: Pyjo-MCP
 
-      # The ref of a dispatch, whose checkout is laid over the release with
-      # `--with-editable`, so that the checkout is what is tested.
-      - name: Checkout Pyjoyment
-        if: ${{ inputs.pyjoyment-ref }}
-        uses: actions/checkout@v7
-        with:
-          repository: pyjoyment/Pyjoyment
-          ref: ${{ inputs.pyjoyment-ref }}
-          path: Pyjoyment
-
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
@@ -77,10 +67,13 @@ jobs:
         env:
           PYTHONDEVMODE: "1"
           PYTHONWARNINGS: error::SyntaxWarning,error::DeprecationWarning
-          PYJOYMENT: ${{ inputs.pyjoyment-ref && '../Pyjoyment' || '' }}
+          # The ref of a dispatch, a branch, a tag or a commit, whose
+          # Pyjoyment of Git is installed over the release with `--with`,
+          # not editable, as an installation from Git gets it.
+          PYJOYMENT: ${{ inputs.pyjoyment-ref && format('pyjoyment @ git+https://github.com/pyjoyment/Pyjoyment@{0}', inputs.pyjoyment-ref) || '' }}
         run: |
           mkdir -p "$GITHUB_WORKSPACE/junit"
-          uv run ${PYJOYMENT:+--with-editable "$PYJOYMENT"} python -m Pyjo.Prove -l --color --timeout 60 --capture-stderr --formatter "junit=$GITHUB_WORKSPACE/junit/pyjo-mcp.xml" --formatter "markdown=$GITHUB_STEP_SUMMARY" -r t 2>&1 | tee prove.log
+          uv run ${PYJOYMENT:+--with "$PYJOYMENT"} python -m Pyjo.Prove -l --color --timeout 60 --capture-stderr --formatter "junit=$GITHUB_WORKSPACE/junit/pyjo-mcp.xml" --formatter "markdown=$GITHUB_STEP_SUMMARY" -r t 2>&1 | tee prove.log
           if grep -n 'ResourceWarning:' prove.log; then exit 1; fi
 
       # As in Pyjoyment: the JUnit XML of the harness, as the annotations of the
@@ -121,15 +114,6 @@ jobs:
         with:
           path: Pyjo-MCP
 
-      # As above.
-      - name: Checkout Pyjoyment
-        if: ${{ inputs.pyjoyment-ref }}
-        uses: actions/checkout@v7
-        with:
-          repository: pyjoyment/Pyjoyment
-          ref: ${{ inputs.pyjoyment-ref }}
-          path: Pyjoyment
-
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
@@ -151,10 +135,11 @@ jobs:
         env:
           PYTHONDEVMODE: "1"
           PYTHONWARNINGS: error::SyntaxWarning,error::DeprecationWarning
-          PYJOYMENT: ${{ inputs.pyjoyment-ref && '../Pyjoyment' || '' }}
+          # As above.
+          PYJOYMENT: ${{ inputs.pyjoyment-ref && format('pyjoyment @ git+https://github.com/pyjoyment/Pyjoyment@{0}', inputs.pyjoyment-ref) || '' }}
         run: |
           mkdir -p "$GITHUB_WORKSPACE/junit"
-          uv run --group sdk ${PYJOYMENT:+--with-editable "$PYJOYMENT"} python -m Pyjo.Prove -l --color --timeout 120 --capture-stderr --formatter "junit=$GITHUB_WORKSPACE/junit/sdk.xml" --formatter "markdown=$GITHUB_STEP_SUMMARY" -r t/sdk 2>&1 | tee prove.log
+          uv run --group sdk ${PYJOYMENT:+--with "$PYJOYMENT"} python -m Pyjo.Prove -l --color --timeout 120 --capture-stderr --formatter "junit=$GITHUB_WORKSPACE/junit/sdk.xml" --formatter "markdown=$GITHUB_STEP_SUMMARY" -r t/sdk 2>&1 | tee prove.log
           if grep -n 'ResourceWarning:' prove.log; then exit 1; fi
 
       # As above.
