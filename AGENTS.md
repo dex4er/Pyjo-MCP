@@ -347,13 +347,17 @@ checks what Biome does not, as the duplicated keys. The version of Biome is
 the pinned one of `.trunk/trunk.yaml`, where `!` keeps it from
 `trunk upgrade`, and which Renovate bumps, as in the repositories of
 freelensapp: the repository has no `package.json` of its own. Renovate cannot
-run `biome migrate`, so the workflow Biome Migrate runs it with
-`npx --yes @biomejs/biome@<version>` of that version, migrates `biome.jsonc` on
-the branch of Renovate and commits it with the token of the workflow, as the
-author that `gitIgnoredAuthors` of `.renovaterc.json` names, so that Renovate
-keeps updating the branch, and starts the checks of the commit with
-`workflow_dispatch`; anywhere else, a `biome.jsonc` that this Biome would
-migrate fails the check. The definition of Biome in `.trunk/trunk.yaml` is
+run `biome migrate` nor `biome format`, so the workflow Biome Migrate runs them
+with `npx --yes @biomejs/biome@<version>` of that version, migrates
+`biome.jsonc` and formats the files that the new version formats otherwise,
+which Trunk Check would fail on, on the branch of Renovate, and commits them
+with the token of the workflow, as the author that `gitIgnoredAuthors` of
+`.renovaterc.json` names, so that Renovate keeps updating the branch, and
+starts the checks of the commit with `workflow_dispatch`; anywhere else, a file
+that this Biome would migrate or format fails the check. The token cannot
+change a workflow, so a file of `.github/workflows` that the new Biome formats
+otherwise fails the push of the commit, and is formatted by hand. The
+definition of Biome in `.trunk/trunk.yaml` is
 the one of Pyjoyment, which explains why it is not the one of the plugin of
 Trunk.
 
