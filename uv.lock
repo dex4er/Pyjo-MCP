@@ -817,11 +817,11 @@ sdk = [{ name = "mcp", specifier = ">=2.3.0" }]
 
 [[package]]
 name = "pyjoyment"
-version = "0.2.0"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/18/87/0b8571f1c574ebe9c56be62ff65015698721afa5a90163784a32ebd0036c/pyjoyment-0.2.0.tar.gz", hash = "sha256:96c59dd95ae18130b7185a4c7aed339824c325e103d2b2f8c0407564a223c516", size = 2040464, upload-time = "2026-11-03T16:44:40.259Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/68/8b/a884c5adcda58db4b93ed48fd5dbd1124f51c43aecb346f1df4d6acaa818/pyjoyment-0.3.0.tar.gz", hash = "sha256:7cc7a6766f60c4b807b4d52643fc3b6a008dcb2378635158201b727a95cb23d8", size = 2086251, upload-time = "2026-11-05T16:11:40.5Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/75/00/d846410ee4ed380ecb9440d5822d5284df37b86291a7dd95ff6d93a7b429/pyjoyment-0.2.0-py3-none-any.whl", hash = "sha256:cc1fbe5083101b57114b0d35d083f22a836af312e8eca1fce42d9dfe4196567c", size = 1249536, upload-time = "2026-11-03T16:44:38.373Z" },
+    { url = "https://files.pythonhosted.org/packages/2a/63/e91e7992501d15fe09bbeeb07ee9ed1002c7c9d7e64a28dd953f5891188a/pyjoyment-0.3.0-py3-none-any.whl", hash = "sha256:ed58806bdd0dc333c042afaf88eba3d30a7a7f6670d2375fc57555f800d14e60", size = 1266314, upload-time = "2026-11-05T16:11:38.891Z" },
 ]
 
 [[package]]
