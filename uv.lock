@@ -809,7 +809,7 @@ sdk = [
 docs = ">=3.14"
 
 [package.metadata]
-requires-dist = [{ name = "pyjoyment", specifier = ">=0.2.0" }]
+requires-dist = [{ name = "pyjoyment", specifier = ">=0.3.0" }]
 
 [package.metadata.requires-dev]
 docs = [{ name = "sphinx", marker = "python_full_version >= '3.14'", specifier = ">=9.2.0" }]
