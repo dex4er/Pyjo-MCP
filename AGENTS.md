@@ -406,6 +406,20 @@ tagged. The version is static in `pyproject.toml`, as `uv version` cannot set a
 dynamic one, and `__version__` of the package reads it from the metadata of
 the distribution.
 
+Each release has a milestone of GitHub named after its version, as `0.2.1`,
+which holds the pull requests and the issues that go into it, so that the
+milestone says what the diff and the notes of the release have. A pull
+request that a maintainer or an agent opens gets the milestone of the next
+release when it is opened, as `gh pr create --milestone 0.2.1`, and so does
+the issue that it closes, as the change is then on its way into that
+release. An issue alone waits for its triage without a milestone, and so
+does a pull request of Renovate or of a workflow, as Automated version,
+which none of them gives one. After a release, its milestone is closed, and
+the milestone of the next release is named after the version of
+`pyproject.toml` without its pre-release, as `0.2.1` of `0.2.1.dev1`, or the
+next patch release while the version is still the one released, and is
+renamed when a bump changes it.
+
 Release builds the sdist and the wheel, attests their build provenance with
 `actions/attest`, and makes a draft of the GitHub release with them, whose
 notes are rewritten before it is published, and an SBOM in SPDX, attested
