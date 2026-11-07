@@ -88,7 +88,7 @@ lint:
     - git-diff-check
     - pyright@1.1.414
     # The format command of ruff is disabled in the plugin by default
-    - ruff@0.17.3:
+    - ruff@0.17.4:
         commands:
           - lint
           - format
